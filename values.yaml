@@ -1,0 +1,266 @@
+# Global settings that apply to all containers
+global:
+  # Namespace for all resources
+  namespace: default
+  # Common labels for all resources
+  labels: {}
+  # Common annotations for all resources
+  annotations: {}
+  # Used for affinity/anti-affinity
+  clusterName: "eks-cluster"
+  # AWS region
+  region: "us-east-1"
+  # Default node selector
+  nodeSelector: {}
+  # Default tolerations
+  tolerations: []
+  # Default affinity rules
+  affinity: {}
+  # Default pod disruption budget
+  pdb:
+    enabled: false
+    minAvailable: 1
+    maxUnavailable: null
+  # Default security context
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+  # Default image pull secrets
+  imagePullSecrets: []
+  # Network policy defaults
+  networkPolicy:
+    enabled: false
+  # ServiceAccount settings
+  serviceAccount:
+    create: true
+    annotations: {}
+
+# List of containers/applications to deploy
+# Each key is a unique application/deployment name
+
+# Custom Kubernetes manifests to include
+extraDeploy: []
+containers:
+  # Example application
+  app1:
+    enabled: true
+    # Deployment specific settings
+    deployment:
+      replicas: 1
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 25%
+          maxUnavailable: 25%
+      revisionHistoryLimit: 10
+      annotations: {}
+      labels: {}
+      podAnnotations: {}
+      podLabels: {}
+      # Pod lifecycle
+      terminationGracePeriodSeconds: 30
+      # Override global settings
+      nodeSelector: {}
+      tolerations: []
+      affinity: {}
+      securityContext: {}
+      imagePullSecrets: []
+
+    # Container spec
+    container:
+      image:
+        repository: nginx
+        tag: latest
+        pullPolicy: IfNotPresent
+      command: []
+      args: []
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+      # Resource settings
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+      # Liveness probe
+      livenessProbe:
+        enabled: true
+        httpGet:
+          path: /
+          port: http
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
+        successThreshold: 1
+      # Readiness probe
+      readinessProbe:
+        enabled: true
+        httpGet:
+          path: /
+          port: http
+        initialDelaySeconds: 5
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 3
+        successThreshold: 1
+      # Startup probe
+      startupProbe:
+        enabled: false
+        httpGet:
+          path: /
+          port: http
+        initialDelaySeconds: 5
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 30
+        successThreshold: 1
+      # Environment variables
+      env: []
+      # Environment variables from ConfigMaps
+      envFrom: []
+      # Mount volumes
+      volumeMounts: []
+      # Port definitions
+      ports:
+        - name: http
+          containerPort: 80
+          protocol: TCP
+      # Sidecar containers
+      sidecars: []
+      # Init containers
+      initContainers: []
+
+    # Service configuration
+    service:
+      enabled: true
+      type: ClusterIP
+      ports:
+        - port: 80
+          targetPort: http
+          protocol: TCP
+          name: http
+      annotations: {}
+      labels: {}
+
+    # Ingress configuration
+    ingress:
+      enabled: false
+      annotations:
+        kubernetes.io/ingress.class: alb
+        alb.ingress.kubernetes.io/scheme: internet-facing
+        alb.ingress.kubernetes.io/target-type: ip
+      hosts:
+        - host: chart-example.local
+          paths:
+            - path: /
+              pathType: Prefix
+      tls: []
+
+    # ConfigMaps configuration
+    configMaps:
+      # Default ConfigMap
+      default:
+        enabled: false
+        data: {}
+      # Additional ConfigMaps can be added as needed
+      # config2:
+      #   enabled: true
+      #   data:
+      #     config.json: |
+      #       {
+      #         "key": "value"
+      #       }
+
+    # Secret configuration
+    secret:
+      enabled: false
+      stringData: {}
+
+    # Persistent Volume Claim
+    persistentVolumeClaim:
+      enabled: false
+      storageClassName: gp2
+      accessModes:
+        - ReadWriteOnce
+      size: 1Gi
+      annotations: {}
+
+    # Horizontal Pod Autoscaler
+    hpa:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 5
+      targetCPUUtilizationPercentage: 80
+      targetMemoryUtilizationPercentage: 80
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 15
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 15
+
+    # KEDA ScaledObject
+    keda:
+      enabled: false
+      minReplicaCount: 1
+      maxReplicaCount: 10
+      pollingInterval: 30
+      cooldownPeriod: 300
+      # Add triggers as needed, e.g., CPU, memory, custom metrics
+      triggers:
+        - type: cpu
+          metadata:
+            type: Utilization
+            value: "80"
+        - type: memory
+            metadata:
+              type: Utilization
+              value: "80"
+
+    # ServiceMonitor for Prometheus
+    serviceMonitor:
+      enabled: false
+      interval: 15s
+      scrapeTimeout: 10s
+      path: /metrics
+      port: http
+
+    # Network policy
+    networkPolicy:
+      enabled: false
+      # Policy types to include
+      policyTypes:
+        - Ingress
+        - Egress
+      # Allowed ingress traffic
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: frontend
+      # Allowed egress traffic
+      egress:
+        - to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: database
+
+    # Additional resources specific to this container
+    additionalResources: []
+    

@@ -1,0 +1,33 @@
+{{- define "psb1-helm-base-chart.service" -}}
+{{- $ := index . 0 -}}
+{{- $containerName := index . 1 -}}
+{{- $containerValues := index ($.Values.containers) $containerName -}}
+{{- if and $containerValues.enabled $containerValues.service.enabled -}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $containerName }}
+  namespace: {{ $.Values.global.namespace | default "default" }}
+  labels:
+    {{- include "psb1-helm-base-chart.labels" (list $ $containerName) | nindent 4 }}
+    {{- if $containerValues.service.labels }}
+    {{- toYaml $containerValues.service.labels | nindent 4 }}
+    {{- end }}
+  {{- if $containerValues.service.annotations }}
+  annotations:
+    {{- toYaml $containerValues.service.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $containerValues.service.type }}
+  ports:
+    {{- range $containerValues.service.ports }}
+    - port: {{ .port }}
+      targetPort: {{ .targetPort }}
+      protocol: {{ .protocol }}
+      name: {{ .name }}
+    {{- end }}
+  selector:
+    {{- include "psb1-helm-base-chart.selectorLabels" (list $ $containerName) | nindent 4 }}
+{{- end }}
+{{- end -}}

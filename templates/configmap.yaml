@@ -1,0 +1,22 @@
+{{- define "psb1-helm-base-chart.configmap" -}}
+{{- $ := index . 0 -}}
+{{- $containerName := index . 1 -}}
+{{- $containerValues := index ($.Values.containers) $containerName -}}
+{{- if $containerValues.enabled -}}
+{{- range $configMapName, $configMapValues := $containerValues.configMaps }}
+{{- if $configMapValues.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $containerName }}-{{ $configMapName }}
+  namespace: {{ $.Values.global.namespace | default "default" }}
+  labels:
+    {{- include "psb1-helm-base-chart.labels" (list $ $containerName) | nindent 4 }}
+    configmap-name: {{ $configMapName }}
+data:
+  {{- toYaml $configMapValues.data | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end -}}

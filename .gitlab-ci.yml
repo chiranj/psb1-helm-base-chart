@@ -1,0 +1,100 @@
+stages:
+  - validate
+  - package
+  - publish
+
+variables:
+  HELM_VERSION: "3.12.3"
+  CHART_NAME: "psb1-helm-base-chart"
+  CHART_VERSION: "0.1.0"
+  CHART_PATH: "."
+  NEXUS_URL: "${NEXUS_URL}"
+  NEXUS_HELM_REPO: "${NEXUS_HELM_REPO}"
+  NEXUS_USER: "${NEXUS_USER}"
+  NEXUS_PASSWORD: "${NEXUS_PASSWORD}"
+
+.helm_install:
+  before_script:
+    - curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    - chmod 700 get_helm.sh
+    - ./get_helm.sh --version ${HELM_VERSION}
+    - helm version
+    - helm plugin install https://github.com/chartmuseum/helm-push || true
+
+validate:lint:
+  stage: validate
+  image: alpine:3.18
+  extends: .helm_install
+  script:
+    - echo "Linting Helm chart..."
+    - helm lint ${CHART_PATH}
+  allow_failure: false
+
+validate:template:
+  stage: validate
+  image: alpine:3.18
+  extends: .helm_install
+  script:
+    - echo "Validating Helm template rendering..."
+    - helm template ${CHART_PATH} --debug
+    - helm template ${CHART_PATH} --validate
+  allow_failure: false
+
+validate:yaml:
+  stage: validate
+  image: python:3.11-alpine
+  script:
+    - pip install yamllint
+    - echo "Checking YAML syntax and formatting..."
+    - yamllint -d relaxed ${CHART_PATH}/values.yaml
+    - yamllint -d relaxed ${CHART_PATH}/templates/
+  allow_failure: false
+
+validate:package-dry-run:
+  stage: validate
+  image: alpine:3.18
+  extends: .helm_install
+  script:
+    - echo "Testing package creation..."
+    - helm package ${CHART_PATH} --destination ./charts --debug
+    - ls -la ./charts
+  artifacts:
+    paths:
+      - ./charts
+    expire_in: 1 hour
+
+package:
+  stage: package
+  image: alpine:3.18
+  extends: .helm_install
+  script:
+    - echo "Packaging Helm chart..."
+    - mkdir -p ./packages
+    - helm package ${CHART_PATH} --destination ./packages --version ${CHART_VERSION}
+    - ls -la ./packages
+  artifacts:
+    paths:
+      - ./packages
+    expire_in: 1 week
+  only:
+    - main
+    - tags
+
+publish:nexus:
+  stage: publish
+  image: alpine:3.18
+  extends: .helm_install
+  script:
+    - echo "Publishing Helm chart to Nexus repository..."
+    - helm repo add nexus ${NEXUS_URL}/${NEXUS_HELM_REPO} --username ${NEXUS_USER} --password ${NEXUS_PASSWORD}
+    - helm repo update
+    - helm cm-push ./packages/${CHART_NAME}-${CHART_VERSION}.tgz nexus
+    - echo "Chart published successfully!"
+  dependencies:
+    - package
+  only:
+    - tags
+  when: manual
+  environment:
+    name: nexus
+    url: ${NEXUS_URL}/${NEXUS_HELM_REPO}

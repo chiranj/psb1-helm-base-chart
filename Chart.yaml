@@ -1,0 +1,6 @@
+apiVersion: v2
+name: psb1-helm-base-chart
+description: A base Helm chart for deploying applications to EKS
+type: library
+version: 0.1.0
+appVersion: "1.0.0"

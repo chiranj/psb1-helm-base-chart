@@ -1,0 +1,24 @@
+{{- define "psb1-helm-base-chart.kedascaledobject" -}}
+{{- $ := index . 0 -}}
+{{- $containerName := index . 1 -}}
+{{- $containerValues := index ($.Values.containers) $containerName -}}
+{{- if and $containerValues.enabled $containerValues.keda.enabled -}}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ $containerName }}
+  namespace: {{ $.Values.global.namespace | default "default" }}
+  labels:
+    {{- include "psb1-helm-base-chart.labels" (list $ $containerName) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ $containerName }}
+  pollingInterval: {{ $containerValues.keda.pollingInterval }}
+  cooldownPeriod: {{ $containerValues.keda.cooldownPeriod }}
+  minReplicaCount: {{ $containerValues.keda.minReplicaCount }}
+  maxReplicaCount: {{ $containerValues.keda.maxReplicaCount }}
+  triggers:
+    {{- toYaml $containerValues.keda.triggers | nindent 4 }}
+{{- end }}
+{{- end -}}

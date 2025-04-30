@@ -1,0 +1,35 @@
+Thank you for installing {{ .Chart.Name }}.
+
+This base Helm chart provides templates for deploying multiple containers to Kubernetes with:
+- Individually customizable deployments, services, ingress, volumes, and more
+- Support for both HPA and KEDA-based autoscaling
+- ConfigMaps and Secrets management
+- Network policies and service monitoring
+
+Applications that use this chart:
+{{- range $containerName, $containerValues := .Values.containers }}
+{{- if $containerValues.enabled }}
+* {{ $containerName }} is deployed with:
+  {{- if $containerValues.service.enabled }}
+  - Service ({{ $containerValues.service.type }})
+  {{- end }}
+  {{- if $containerValues.ingress.enabled }}
+  - Ingress
+  {{- end }}
+  {{- if $containerValues.configMap.enabled }}
+  - ConfigMap
+  {{- end }}
+  {{- if $containerValues.secret.enabled }}
+  - Secret
+  {{- end }}
+  {{- if $containerValues.persistentVolumeClaim.enabled }}
+  - PVC ({{ $containerValues.persistentVolumeClaim.size }})
+  {{- end }}
+  {{- if $containerValues.hpa.enabled }}
+  - HPA ({{ $containerValues.hpa.minReplicas }}-{{ $containerValues.hpa.maxReplicas }} replicas)
+  {{- end }}
+  {{- if $containerValues.keda.enabled }}
+  - KEDA ScaledObject ({{ $containerValues.keda.minReplicaCount }}-{{ $containerValues.keda.maxReplicaCount }} replicas)
+  {{- end }}
+{{- end }}
+{{- end }}

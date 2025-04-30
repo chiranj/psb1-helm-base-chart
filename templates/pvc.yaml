@@ -1,0 +1,28 @@
+{{- define "psb1-helm-base-chart.pvc" -}}
+{{- $ := index . 0 -}}
+{{- $containerName := index . 1 -}}
+{{- $containerValues := index ($.Values.containers) $containerName -}}
+{{- if and $containerValues.enabled $containerValues.persistentVolumeClaim.enabled -}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $containerName }}
+  namespace: {{ $.Values.global.namespace | default "default" }}
+  labels:
+    {{- include "psb1-helm-base-chart.labels" (list $ $containerName) | nindent 4 }}
+  {{- with $containerValues.persistentVolumeClaim.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- range $containerValues.persistentVolumeClaim.accessModes }}
+    - {{ . | quote }}
+    {{- end }}
+  storageClassName: {{ $containerValues.persistentVolumeClaim.storageClassName }}
+  resources:
+    requests:
+      storage: {{ $containerValues.persistentVolumeClaim.size }}
+{{- end }}
+{{- end -}}

@@ -1,0 +1,25 @@
+{{- define "psb1-helm-base-chart.pdb" -}}
+{{- $ := index . 0 -}}
+{{- $containerName := index . 1 -}}
+{{- $containerValues := index ($.Values.containers) $containerName -}}
+{{- if and $containerValues.enabled $.Values.global.pdb.enabled -}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $containerName }}
+  namespace: {{ $.Values.global.namespace | default "default" }}
+  labels:
+    {{- include "psb1-helm-base-chart.labels" (list $ $containerName) | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "psb1-helm-base-chart.selectorLabels" (list $ $containerName) | nindent 6 }}
+  {{- if $.Values.global.pdb.minAvailable }}
+  minAvailable: {{ $.Values.global.pdb.minAvailable }}
+  {{- end }}
+  {{- if $.Values.global.pdb.maxUnavailable }}
+  maxUnavailable: {{ $.Values.global.pdb.maxUnavailable }}
+  {{- end }}
+{{- end }}
+{{- end -}}

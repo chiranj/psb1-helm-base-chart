@@ -1,0 +1,149 @@
+{{- define "psb1-helm-base-chart.deployment" -}}
+{{- $ := index . 0 -}}
+{{- $containerName := index . 1 -}}
+{{- $containerValues := index ($.Values.containers) $containerName -}}
+{{- if and $containerValues.enabled (not (kindIs "invalid" $containerValues)) -}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $containerName }}
+  namespace: {{ $.Values.global.namespace | default "default" }}
+  labels:
+    {{- include "psb1-helm-base-chart.labels" (list $ $containerName) | nindent 4 }}
+    {{- if $containerValues.deployment.labels }}
+    {{- toYaml $containerValues.deployment.labels | nindent 4 }}
+    {{- end }}
+  {{- if $containerValues.deployment.annotations }}
+  annotations:
+    {{- toYaml $containerValues.deployment.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ $containerValues.deployment.replicas }}
+  selector:
+    matchLabels:
+      {{- include "psb1-helm-base-chart.selectorLabels" (list $ $containerName) | nindent 6 }}
+  strategy:
+    {{- toYaml $containerValues.deployment.strategy | nindent 4 }}
+  revisionHistoryLimit: {{ $containerValues.deployment.revisionHistoryLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "psb1-helm-base-chart.selectorLabels" (list $ $containerName) | nindent 8 }}
+        {{- if $containerValues.deployment.podLabels }}
+        {{- toYaml $containerValues.deployment.podLabels | nindent 8 }}
+        {{- end }}
+      {{- if $containerValues.deployment.podAnnotations }}
+      annotations:
+        {{- toYaml $containerValues.deployment.podAnnotations | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with $containerValues.deployment.imagePullSecrets | default $.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $.Values.global.serviceAccount.create }}
+      serviceAccountName: {{ $containerName }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ $containerValues.deployment.terminationGracePeriodSeconds }}
+      {{- with $containerValues.deployment.nodeSelector | default $.Values.global.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $containerValues.deployment.affinity | default $.Values.global.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $containerValues.deployment.tolerations | default $.Values.global.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $containerValues.deployment.securityContext | default $.Values.global.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $containerValues.container.initContainers }}
+      initContainers:
+        {{- toYaml $containerValues.container.initContainers | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ $containerName }}
+          image: "{{ $containerValues.container.image.repository }}:{{ $containerValues.container.image.tag }}"
+          imagePullPolicy: {{ $containerValues.container.image.pullPolicy }}
+          {{- if $containerValues.container.command }}
+          command:
+            {{- toYaml $containerValues.container.command | nindent 12 }}
+          {{- end }}
+          {{- if $containerValues.container.args }}
+          args:
+            {{- toYaml $containerValues.container.args | nindent 12 }}
+          {{- end }}
+          {{- with $containerValues.container.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if $containerValues.container.ports }}
+          ports:
+            {{- range $containerValues.container.ports }}
+            - name: {{ .name }}
+              containerPort: {{ .containerPort }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          {{- end }}
+          {{- if $containerValues.container.env }}
+          env:
+            {{- toYaml $containerValues.container.env | nindent 12 }}
+          {{- end }}
+          {{- if $containerValues.container.envFrom }}
+          envFrom:
+            {{- toYaml $containerValues.container.envFrom | nindent 12 }}
+          {{- end }}
+          {{- if $containerValues.container.resources }}
+          resources:
+            {{- toYaml $containerValues.container.resources | nindent 12 }}
+          {{- end }}
+          {{- if $containerValues.container.volumeMounts }}
+          volumeMounts:
+            {{- toYaml $containerValues.container.volumeMounts | nindent 12 }}
+          {{- end }}
+          {{- if $containerValues.container.livenessProbe.enabled }}
+          livenessProbe:
+            {{- omit $containerValues.container.livenessProbe "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          {{- if $containerValues.container.readinessProbe.enabled }}
+          readinessProbe:
+            {{- omit $containerValues.container.readinessProbe "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+          {{- if $containerValues.container.startupProbe.enabled }}
+          startupProbe:
+            {{- omit $containerValues.container.startupProbe "enabled" | toYaml | nindent 12 }}
+          {{- end }}
+        {{- if $containerValues.container.sidecars }}
+        {{- toYaml $containerValues.container.sidecars | nindent 8 }}
+        {{- end }}
+      {{- if or $containerValues.persistentVolumeClaim.enabled (gt (len $containerValues.container.volumeMounts) 0) }}
+      volumes:
+        {{- if $containerValues.persistentVolumeClaim.enabled }}
+        - name: {{ $containerName }}-storage
+          persistentVolumeClaim:
+            claimName: {{ $containerName }}
+        {{- end }}
+        {{- range $containerValues.container.volumeMounts }}
+        {{- if not (eq .name (printf "%s-storage" $containerName)) }}
+        - name: {{ .name }}
+          {{- if eq .name (printf "%s-secret" $containerName) }}
+          secret:
+            secretName: {{ $containerName }}
+          {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- range $configMapName, $configMapValues := $containerValues.configMaps }}
+        {{- if $configMapValues.enabled }}
+        - name: {{ $containerName }}-{{ $configMapName }}-config
+          configMap:
+            name: {{ $containerName }}-{{ $configMapName }}
+        {{- end }}
+        {{- end }}
+      {{- end }}
+{{- end }}
+{{- end -}}

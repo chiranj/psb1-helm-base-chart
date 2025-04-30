@@ -1,0 +1,24 @@
+{{- define "psb1-helm-base-chart.servicemonitor" -}}
+{{- $ := index . 0 -}}
+{{- $containerName := index . 1 -}}
+{{- $containerValues := index ($.Values.containers) $containerName -}}
+{{- if and $containerValues.enabled $containerValues.serviceMonitor.enabled -}}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $containerName }}
+  namespace: {{ $.Values.global.namespace | default "default" }}
+  labels:
+    {{- include "psb1-helm-base-chart.labels" (list $ $containerName) | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "psb1-helm-base-chart.selectorLabels" (list $ $containerName) | nindent 6 }}
+  endpoints:
+    - port: {{ $containerValues.serviceMonitor.port }}
+      interval: {{ $containerValues.serviceMonitor.interval }}
+      scrapeTimeout: {{ $containerValues.serviceMonitor.scrapeTimeout }}
+      path: {{ $containerValues.serviceMonitor.path }}
+{{- end }}
+{{- end -}}

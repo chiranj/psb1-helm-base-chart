@@ -1,0 +1,32 @@
+{{- define "psb1-helm-base-chart.networkpolicy" -}}
+{{- $ := index . 0 -}}
+{{- $containerName := index . 1 -}}
+{{- $containerValues := index ($.Values.containers) $containerName -}}
+{{- $networkPolicy := $containerValues.networkPolicy | default $.Values.global.networkPolicy -}}
+{{- if and $containerValues.enabled $networkPolicy.enabled -}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $containerName }}
+  namespace: {{ $.Values.global.namespace | default "default" }}
+  labels:
+    {{- include "psb1-helm-base-chart.labels" (list $ $containerName) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "psb1-helm-base-chart.selectorLabels" (list $ $containerName) | nindent 6 }}
+  policyTypes:
+    {{- range $networkPolicy.policyTypes }}
+    - {{ . }}
+    {{- end }}
+  {{- with $networkPolicy.ingress }}
+  ingress:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $networkPolicy.egress }}
+  egress:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end -}}
