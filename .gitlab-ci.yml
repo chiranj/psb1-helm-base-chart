@@ -10,8 +10,8 @@ variables:
   CHART_PATH: "."
   NEXUS_URL: "${NEXUS_URL}"
   NEXUS_HELM_REPO: "${NEXUS_HELM_REPO}"
-  NEXUS_USER: "${NEXUS_USER}"
-  NEXUS_PASSWORD: "${NEXUS_PASSWORD}"
+  AWS_SECRET_ID: "helm/nexus-credentials"
+  AWS_REGION: "us-east-1"
 
 .helm_install:
   before_script:
@@ -82,9 +82,30 @@ package:
 
 publish:nexus:
   stage: publish
-  image: alpine:3.18
+  image: amazon/aws-cli:latest
   extends: .helm_install
   script:
+    - echo "Retrieving Nexus credentials from AWS Secrets Manager..."
+    - yum install -y jq
+
+    - >
+      NEXUS_CREDENTIALS=$(aws secretsmanager get-secret-value 
+      --secret-id ${AWS_SECRET_ID} 
+      --region ${AWS_REGION} 
+      --query SecretString 
+      --output text)
+    
+    # Parse JSON response and extract credentials
+    - export NEXUS_USER=$(echo $NEXUS_CREDENTIALS | jq -r '.NEXUS_USER')
+    - export NEXUS_PASSWORD=$(echo $NEXUS_CREDENTIALS | jq -r '.NEXUS_PASSWORD')
+    
+    # Validate that we got the credentials
+    - if [ -z "$NEXUS_USER" ] || [ -z "$NEXUS_PASSWORD" ]; then
+        echo "Failed to retrieve Nexus credentials from AWS Secrets Manager";
+        exit 1;
+      fi
+    
+    # Publish to Nexus
     - echo "Publishing Helm chart to Nexus repository..."
     - helm repo add nexus ${NEXUS_URL}/${NEXUS_HELM_REPO} --username ${NEXUS_USER} --password ${NEXUS_PASSWORD}
     - helm repo update
