@@ -87,22 +87,30 @@ package:
 
 publish:nexus:
   stage: publish
-  image: amazon/aws-cli:latest
+  image: alpine:3.18
   extends: .helm_install
+  before_script:
+    # Install AWS CLI and dependencies
+    - apk add --no-cache aws-cli jq curl bash
   script:
     - echo "Retrieving Nexus credentials from AWS Secrets Manager..."
-    - yum install -y jq
-
+    - aws --version
+    
+    # For debugging purposes
+    - echo "AWS region: ${AWS_REGION}"
+    - echo "AWS secret ID: ${AWS_SECRET_ID}"
+    
+    # Get the secret directly
     - >
       NEXUS_CREDENTIALS=$(aws secretsmanager get-secret-value 
-      --secret-id ${AWS_SECRET_ID} 
-      --region ${AWS_REGION} 
-      --query SecretString 
-      --output text)
-    
+      --secret-id "${AWS_SECRET_ID}" 
+      --region "${AWS_REGION}" 
+      --query "SecretString" 
+      --output text) || NEXUS_CREDENTIALS="{}"
+      
     # Parse JSON response and extract credentials
-    - export NEXUS_USER=$(echo $NEXUS_CREDENTIALS | jq -r '.NEXUS_USER')
-    - export NEXUS_PASSWORD=$(echo $NEXUS_CREDENTIALS | jq -r '.NEXUS_PASSWORD')
+    - NEXUS_USER=$(echo "$NEXUS_CREDENTIALS" | jq -r '.NEXUS_USER // empty')
+    - NEXUS_PASSWORD=$(echo "$NEXUS_CREDENTIALS" | jq -r '.NEXUS_PASSWORD // empty')
     
     # Validate that we got the credentials
     - if [ -z "$NEXUS_USER" ] || [ -z "$NEXUS_PASSWORD" ]; then
@@ -112,8 +120,15 @@ publish:nexus:
     
     # Publish to Nexus
     - echo "Publishing Helm chart to Nexus repository..."
-    - helm repo add nexus ${NEXUS_URL}/${NEXUS_HELM_REPO} --username ${NEXUS_USER} --password ${NEXUS_PASSWORD}
+    - echo "Using Nexus URL: ${NEXUS_URL}/${NEXUS_HELM_REPO}"
+    - helm repo add nexus "${NEXUS_URL}/${NEXUS_HELM_REPO}" --username "${NEXUS_USER}" --password "${NEXUS_PASSWORD}"
     - helm repo update
+    
+    # Verify the chart package exists
+    - ls -la ./packages/
+    - echo "Pushing chart: ./packages/${CHART_NAME}-${CHART_VERSION}.tgz"
+    
+    # Push the chart to Nexus
     - helm cm-push ./packages/${CHART_NAME}-${CHART_VERSION}.tgz nexus
     - echo "Chart published successfully!"
   dependencies:
