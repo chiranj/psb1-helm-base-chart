@@ -76,6 +76,11 @@ package:
     paths:
       - ./packages
     expire_in: 1 week
+  dependencies:
+    - validate:lint
+    - validate:template
+    - validate:yaml
+    - validate:package-dry-run
   only:
     - main
     - tags

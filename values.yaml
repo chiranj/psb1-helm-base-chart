@@ -171,14 +171,14 @@ containers:
       default:
         enabled: false
         data: {}
-      # Additional ConfigMaps can be added as needed
-      # config2:
-      #   enabled: true
-      #   data:
-      #     config.json: |
-      #       {
-      #         "key": "value"
-      #       }
+    # Additional ConfigMaps can be added as needed
+    # config2:
+    #   enabled: true
+    #   data:
+    #     config.json: |
+    #       {
+    #         "key": "value"
+    #       }
 
     # Secret configuration
     secret:
@@ -229,9 +229,9 @@ containers:
             type: Utilization
             value: "80"
         - type: memory
-            metadata:
-              type: Utilization
-              value: "80"
+          metadata:
+            type: Utilization
+            value: "80"
 
     # ServiceMonitor for Prometheus
     serviceMonitor:
@@ -263,4 +263,3 @@ containers:
 
     # Additional resources specific to this container
     additionalResources: []
-    
