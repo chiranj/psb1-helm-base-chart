@@ -89,10 +89,10 @@ publish:nexus:
   stage: publish
   image: alpine:3.18
   extends: .helm_install
-  before_script:
+  script:
     # Install AWS CLI and dependencies
     - apk add --no-cache aws-cli jq curl bash
-  script:
+    
     - echo "Retrieving Nexus credentials from AWS Secrets Manager..."
     - aws --version
     
@@ -120,8 +120,14 @@ publish:nexus:
     
     # Publish to Nexus
     - echo "Publishing Helm chart to Nexus repository..."
-    - echo "Using Nexus URL: ${NEXUS_URL}/${NEXUS_HELM_REPO}"
-    - helm repo add nexus "${NEXUS_URL}/${NEXUS_HELM_REPO}" --username "${NEXUS_USER}" --password "${NEXUS_PASSWORD}"
+    # Force the NEXUS_URL to be exactly as provided
+    - export NEXUS_URL_FIXED="https://prod-cicm.com/nexus/repository"
+    - export NEXUS_REPO_PATH="/lab/psb/chart"
+    - echo "Nexus base URL: ${NEXUS_URL_FIXED}"
+    - echo "Nexus repo path: ${NEXUS_REPO_PATH}"
+    - FULL_NEXUS_URL="${NEXUS_URL_FIXED}${NEXUS_REPO_PATH}"
+    - echo "Using full Nexus URL: ${FULL_NEXUS_URL}"
+    - helm repo add nexus "${FULL_NEXUS_URL}" --username "${NEXUS_USER}" --password "${NEXUS_PASSWORD}"
     - helm repo update
     
     # Verify the chart package exists
@@ -138,4 +144,4 @@ publish:nexus:
   when: manual
   environment:
     name: nexus
-    url: ${NEXUS_URL}/${NEXUS_HELM_REPO}
+    url: https://prod-cicm.com/nexus/repository/lab/psb/chart
