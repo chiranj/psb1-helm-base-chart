@@ -110,9 +110,38 @@ publish:nexus:
     - echo "Using full Nexus URL: ${FULL_NEXUS_URL}"
     - helm repo add nexus "${FULL_NEXUS_URL}" --username "${NEXUS_USER}" --password "${NEXUS_PASSWORD}"
     - helm repo update
+    
+    # Verify packaged chart exists, or package it if needed
+    - |
+      if [ ! -f "./packages/${CHART_NAME}-${CHART_VERSION}.tgz" ]; then
+        echo "Packaged chart not found in ./packages, packaging chart directly..."
+        mkdir -p ./packages
+        helm package ${CHART_PATH} --destination ./packages --version ${CHART_VERSION}
+      fi
     - ls -la ./packages/
     - echo "Pushing chart: ./packages/${CHART_NAME}-${CHART_VERSION}.tgz"
-    - helm cm-push ./packages/${CHART_NAME}-${CHART_VERSION}.tgz nexus
+    - |
+      # Try two different methods to upload the chart
+      
+      # Method 1: Try using helm cm-push first
+      echo "Attempting to push with helm cm-push..."
+      if helm cm-push ./packages/${CHART_NAME}-${CHART_VERSION}.tgz nexus; then
+        echo "Successfully pushed chart with helm cm-push"
+      else
+        echo "helm cm-push failed, trying direct upload with curl..."
+        
+        # Method 2: Use curl to upload the chart directly
+        CHART_FILE="./packages/${CHART_NAME}-${CHART_VERSION}.tgz"
+        UPLOAD_URL="${FULL_NEXUS_URL}/${CHART_NAME}-${CHART_VERSION}.tgz"
+        
+        echo "Uploading to: ${UPLOAD_URL}"
+        if curl -v -f --user "${NEXUS_USER}:${NEXUS_PASSWORD}" --upload-file "${CHART_FILE}" "${UPLOAD_URL}"; then
+          echo "Successfully uploaded chart with curl"
+        else
+          echo "Failed to upload chart with curl as well"
+          exit 1
+        fi
+      fi
     - echo "Chart published successfully!"
   dependencies:
     - package
