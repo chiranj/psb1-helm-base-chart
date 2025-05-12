@@ -90,51 +90,28 @@ publish:nexus:
   image: alpine:3.18
   extends: .helm_install
   script:
-    # Install AWS CLI and dependencies
     - apk add --no-cache aws-cli jq curl bash
-    
     - echo "Retrieving Nexus credentials from AWS Secrets Manager..."
     - aws --version
-    
-    # For debugging purposes
     - echo "AWS region: ${AWS_REGION}"
     - echo "AWS secret ID: ${AWS_SECRET_ID}"
-    
-    # Get the secret directly
-    - >
-      NEXUS_CREDENTIALS=$(aws secretsmanager get-secret-value 
-      --secret-id "${AWS_SECRET_ID}" 
-      --region "${AWS_REGION}" 
-      --query "SecretString" 
-      --output text) || NEXUS_CREDENTIALS="{}"
-      
-    # Parse JSON response and extract credentials
-    - NEXUS_USER=$(echo "$NEXUS_CREDENTIALS" | jq -r '.NEXUS_USER // empty')
-    - NEXUS_PASSWORD=$(echo "$NEXUS_CREDENTIALS" | jq -r '.NEXUS_PASSWORD // empty')
-    
-    # Validate that we got the credentials
-    - if [ -z "$NEXUS_USER" ] || [ -z "$NEXUS_PASSWORD" ]; then
-        echo "Failed to retrieve Nexus credentials from AWS Secrets Manager";
-        exit 1;
+    - export NEXUS_CREDENTIALS=$(aws secretsmanager get-secret-value --secret-id "${AWS_SECRET_ID}" --region "${AWS_REGION}" --query "SecretString" --output text || echo "{}")
+    - export NEXUS_USER=$(echo "$NEXUS_CREDENTIALS" | jq -r '.NEXUS_USER // empty')
+    - export NEXUS_PASSWORD=$(echo "$NEXUS_CREDENTIALS" | jq -r '.NEXUS_PASSWORD // empty')
+    - |
+      if [ -z "$NEXUS_USER" ] || [ -z "$NEXUS_PASSWORD" ]; then
+        echo "Failed to retrieve Nexus credentials from AWS Secrets Manager"
+        exit 1
       fi
-    
-    # Publish to Nexus
     - echo "Publishing Helm chart to Nexus repository..."
-    # Force the NEXUS_URL to be exactly as provided
     - export NEXUS_URL_FIXED="https://prod-cicm.com/nexus/repository"
     - export NEXUS_REPO_PATH="/lab/psb/chart"
-    - echo "Nexus base URL: ${NEXUS_URL_FIXED}"
-    - echo "Nexus repo path: ${NEXUS_REPO_PATH}"
-    - FULL_NEXUS_URL="${NEXUS_URL_FIXED}${NEXUS_REPO_PATH}"
+    - export FULL_NEXUS_URL="${NEXUS_URL_FIXED}${NEXUS_REPO_PATH}"
     - echo "Using full Nexus URL: ${FULL_NEXUS_URL}"
     - helm repo add nexus "${FULL_NEXUS_URL}" --username "${NEXUS_USER}" --password "${NEXUS_PASSWORD}"
     - helm repo update
-    
-    # Verify the chart package exists
     - ls -la ./packages/
     - echo "Pushing chart: ./packages/${CHART_NAME}-${CHART_VERSION}.tgz"
-    
-    # Push the chart to Nexus
     - helm cm-push ./packages/${CHART_NAME}-${CHART_VERSION}.tgz nexus
     - echo "Chart published successfully!"
   dependencies:
@@ -143,5 +120,5 @@ publish:nexus:
     - tags
   when: manual
   environment:
-    name: nexus
-    url: https://prod-cicm.com/nexus/repository/lab/psb/chart
+    name: nexus-repository
+    url: https://prod-cicm.com/nexus/repository
