@@ -1,0 +1,159 @@
+# Example values file demonstrating Traefik IngressRoute configuration
+global:
+  namespace: demo-namespace
+  labels:
+    environment: dev
+    team: platform
+
+containers:
+  # Example of an API service with Traefik IngressRoute
+  api:
+    enabled: true
+    
+    deployment:
+      replicas: 2
+    
+    container:
+      image:
+        repository: my-api-image
+        tag: v1.0.0
+        pullPolicy: IfNotPresent
+      ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+    
+    service:
+      enabled: true
+      type: ClusterIP
+      ports:
+        - port: 80
+          targetPort: http
+          protocol: TCP
+          name: http
+    
+    # Standard Kubernetes Ingress - not enabled since we're using IngressRoute instead
+    ingress:
+      enabled: false
+    
+    # Traefik IngressRoute configuration
+    ingressroute:
+      enabled: true
+      entryPoints:
+        - web
+        - websecure
+      routes:
+        - match: "Host(`api.example.com`) && PathPrefix(`/`)"
+          kind: Rule
+          services:
+            - port: 80
+          middlewares:
+            - name: strip-prefix
+          priority: 10
+        - match: "Host(`api.example.com`) && PathPrefix(`/v1`)"
+          kind: Rule
+          services:
+            - port: 80
+              weight: 100
+              sticky:
+                cookie:
+                  name: session
+                  secure: true
+          middlewares:
+            - name: ratelimit
+            - name: auth
+              namespace: security
+      # TLS configuration 
+      tls:
+        certResolver: le
+        options:
+          name: modern-tls
+        domains:
+          - main: api.example.com
+            sans:
+              - api-test.example.com
+              - api-staging.example.com
+
+  # Example of a service with TLS using secretName
+  webapp:
+    enabled: true
+    
+    deployment:
+      replicas: 3
+    
+    container:
+      image:
+        repository: my-web-app
+        tag: v2.1.0
+        pullPolicy: IfNotPresent
+      ports:
+        - name: http
+          containerPort: 80
+          protocol: TCP
+    
+    service:
+      enabled: true
+      type: ClusterIP
+      ports:
+        - port: 80
+          targetPort: http
+          protocol: TCP
+          name: http
+    
+    # Traefik IngressRoute with TLS using existing secret
+    ingressroute:
+      enabled: true
+      entryPoints:
+        - websecure
+      routes:
+        - match: "Host(`app.example.com`)"
+          services:
+            - port: 80
+      tls:
+        secretName: app-example-tls
+        
+  # Example with load balancing between multiple services
+  api-gateway:
+    enabled: true
+    
+    deployment:
+      replicas: 2
+    
+    container:
+      image:
+        repository: api-gateway
+        tag: latest
+        pullPolicy: IfNotPresent
+      ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+    
+    service:
+      enabled: true
+      type: ClusterIP
+      ports:
+        - port: 80
+          targetPort: http
+          protocol: TCP
+          name: http
+    
+    # Traefik IngressRoute with multiple weighted services
+    ingressroute:
+      enabled: true
+      entryPoints:
+        - web
+        - websecure
+      annotations:
+        traefik.ingress.kubernetes.io/router.middlewares: rate-limit@kubernetescrd
+      routes:
+        - match: "Host(`gateway.example.com`)"
+          services:
+            - port: 80

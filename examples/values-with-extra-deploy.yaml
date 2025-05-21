@@ -1,0 +1,83 @@
+# Custom Kubernetes manifests
+extraDeploy:
+  # Example ClusterRole
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: pod-reader
+    rules:
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["get", "watch", "list"]
+  
+  # Example ResourceQuota
+  - apiVersion: v1
+    kind: ResourceQuota
+    metadata:
+      name: compute-resources
+      namespace: {{ .Values.global.namespace | default "default" }}
+    spec:
+      hard:
+        requests.cpu: "1"
+        requests.memory: 1Gi
+        limits.cpu: "2"
+        limits.memory: 2Gi
+
+  # Example CronJob
+  - apiVersion: batch/v1
+    kind: CronJob
+    metadata:
+      name: cleanup-job
+      namespace: {{ .Values.global.namespace | default "default" }}
+    spec:
+      schedule: "0 0 * * *"
+      jobTemplate:
+        spec:
+          template:
+            spec:
+              containers:
+                - name: cleanup
+                  image: alpine:latest
+                  args: ["sh", "-c", "echo Cleanup task running"]
+              restartPolicy: OnFailure
+
+  # Example PodMonitor
+  - apiVersion: monitoring.coreos.com/v1
+    kind: PodMonitor
+    metadata:
+      name: api-pod-monitor
+      namespace: {{ .Values.global.namespace | default "default" }}
+    spec:
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: api
+      podMetricsEndpoints:
+        - port: metrics
+          interval: 15s
+          path: /metrics
+
+# Application configuration
+global:
+  namespace: my-app-namespace
+
+containers:
+  api:
+    enabled: true
+    deployment:
+      replicas: 2
+    container:
+      image:
+        repository: my-api-image
+        tag: latest
+    service:
+      enabled: true
+      type: ClusterIP
+  
+  worker:
+    enabled: true
+    deployment:
+      replicas: 3
+    container:
+      image:
+        repository: my-worker-image
+        tag: latest

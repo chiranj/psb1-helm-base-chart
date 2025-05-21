@@ -1,0 +1,84 @@
+{{- define "psb1-helm-base-chart.acsp" -}}
+{{- $ := index . 0 -}}
+{{- $containerName := index . 1 -}}
+{{- $containerValues := index ($.Values.containers) $containerName -}}
+{{- if and $containerValues.enabled (hasKey $containerValues "awsSecrets") $containerValues.awsSecrets.enabled -}}
+---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: {{ $containerName }}-aws-secrets
+  namespace: {{ $.Values.global.namespace | default "default" }}
+  labels:
+    {{- include "psb1-helm-base-chart.labels" (list $ $containerName) | nindent 4 }}
+spec:
+  provider: aws
+  parameters:
+    region: {{ $containerValues.awsSecrets.region | default $.Values.global.region | default "us-east-1" }}
+    {{- if $containerValues.awsSecrets.failoverRegion }}
+    failoverRegion: {{ $containerValues.awsSecrets.failoverRegion }}
+    {{- end }}
+    objects: |
+      {{- range $idx, $secret := $containerValues.awsSecrets.secrets }}
+      - objectName: {{ $secret.name | quote }}
+        objectType: {{ $secret.type | default "secretsmanager" | quote }}
+        {{- if $secret.jmesPath }}
+        jmesPath:
+          {{- range $path, $target := $secret.jmesPath }}
+          - path: {{ $path | quote }}
+            objectAlias: {{ $target | quote }}
+          {{- end }}
+        {{- else }}
+        objectAlias: {{ $secret.fileName | default $secret.name | quote }}
+        {{- end }}
+        {{- if $secret.version }}
+        objectVersion: {{ $secret.version | quote }}
+        {{- end }}
+      {{- end }}
+    {{- if $containerValues.awsSecrets.pathPermissions }}
+    pathPermissions: {{ $containerValues.awsSecrets.pathPermissions }}
+    {{- end }}
+  {{- if $containerValues.awsSecrets.syncSecrets }}
+  secretObjects:
+    {{- range $secretObj := $containerValues.awsSecrets.syncSecrets }}
+    - secretName: {{ $secretObj.name | default (printf "%s-%s" $containerName "aws-synced-secret") }}
+      type: {{ $secretObj.type | default "Opaque" }}
+      data:
+        {{- range $key, $value := $secretObj.data }}
+        - objectName: {{ $value.objectName }}
+          key: {{ $key }}
+          {{- if $value.objectKey }}
+          objectKey: {{ $value.objectKey }}
+          {{- end }}
+        {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- end -}}
+
+{{- define "psb1-helm-base-chart.acsp-mount" -}}
+{{- $ := index . 0 -}}
+{{- $containerName := index . 1 -}}
+{{- $containerValues := index ($.Values.containers) $containerName -}}
+{{- if and $containerValues.enabled (hasKey $containerValues "awsSecrets") $containerValues.awsSecrets.enabled -}}
+# Volume for AWS Secrets
+- name: {{ $containerName }}-aws-secrets
+  csi:
+    driver: secrets-store.csi.k8s.io
+    readOnly: true
+    volumeAttributes:
+      secretProviderClass: {{ $containerName }}-aws-secrets
+{{- end }}
+{{- end -}}
+
+{{- define "psb1-helm-base-chart.acsp-volumemount" -}}
+{{- $ := index . 0 -}}
+{{- $containerName := index . 1 -}}
+{{- $containerValues := index ($.Values.containers) $containerName -}}
+{{- if and $containerValues.enabled (hasKey $containerValues "awsSecrets") $containerValues.awsSecrets.enabled $containerValues.awsSecrets.mountPath -}}
+# Mount for AWS Secrets
+- name: {{ $containerName }}-aws-secrets
+  mountPath: {{ $containerValues.awsSecrets.mountPath }}
+  readOnly: true
+{{- end }}
+{{- end -}}

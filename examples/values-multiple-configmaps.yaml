@@ -1,0 +1,80 @@
+global:
+  namespace: my-app-namespace
+
+containers:
+  api:
+    enabled: true
+    deployment:
+      replicas: 2
+    container:
+      image:
+        repository: my-api-image
+        tag: latest
+      # Volume mounts for the configmaps
+      volumeMounts:
+        - name: api-config-config
+          mountPath: /app/config
+          readOnly: true
+        - name: api-logging-config
+          mountPath: /app/logging
+          readOnly: true
+        - name: api-secrets-config
+          mountPath: /app/secrets
+          readOnly: true
+      
+    # Multiple ConfigMaps for the same container
+    configMaps:
+      # Main application config
+      config:
+        enabled: true
+        data:
+          application.properties: |
+            app.name=My API
+            app.version=1.0.0
+            app.port=8080
+          config.json: |
+            {
+              "features": {
+                "featureA": true,
+                "featureB": false
+              }
+            }
+      
+      # Logging configuration
+      logging:
+        enabled: true
+        data:
+          logback.xml: |
+            <configuration>
+              <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+                <encoder>
+                  <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+                </encoder>
+              </appender>
+              <root level="info">
+                <appender-ref ref="STDOUT" />
+              </root>
+            </configuration>
+          log4j2.properties: |
+            status = info
+            name = PropertiesConfig
+            
+            appender.console.type = Console
+            appender.console.name = STDOUT
+            appender.console.layout.type = PatternLayout
+            appender.console.layout.pattern = %d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n
+            
+            rootLogger.level = info
+            rootLogger.appenderRef.stdout.ref = STDOUT
+      
+      # Environment-specific secrets configuration
+      secrets:
+        enabled: true
+        data:
+          endpoints.yaml: |
+            production:
+              url: https://api.example.com
+              timeout: 30s
+            staging:
+              url: https://staging.example.com
+              timeout: 10s

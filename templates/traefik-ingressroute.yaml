@@ -1,0 +1,98 @@
+{{- define "psb1-helm-base-chart.ingressroute" -}}
+{{- $ := index . 0 -}}
+{{- $containerName := index . 1 -}}
+{{- $containerValues := index ($.Values.containers) $containerName -}}
+{{- if and $containerValues.enabled (hasKey $containerValues "ingressroute") $containerValues.ingressroute.enabled -}}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ $containerName }}
+  namespace: {{ $.Values.global.namespace | default "default" }}
+  labels:
+    {{- include "psb1-helm-base-chart.labels" (list $ $containerName) | nindent 4 }}
+  {{- with $containerValues.ingressroute.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  entryPoints:
+    {{- range $containerValues.ingressroute.entryPoints }}
+    - {{ . }}
+    {{- end }}
+  routes:
+    {{- range $containerValues.ingressroute.routes }}
+    - match: {{ .match }}
+      kind: {{ .kind | default "Rule" }}
+      {{- if .priority }}
+      priority: {{ .priority }}
+      {{- end }}
+      services:
+        {{- if .services }}
+        {{- range .services }}
+        - name: {{ $containerName }}
+          port: {{ .port }}
+          {{- if .weight }}
+          weight: {{ .weight }}
+          {{- end }}
+          {{- if .sticky }}
+          sticky: {{ .sticky }}
+          {{- end }}
+          {{- if .passHostHeader }}
+          passHostHeader: {{ .passHostHeader }}
+          {{- end }}
+          {{- if .responseForwarding }}
+          responseForwarding:
+            {{- toYaml .responseForwarding | nindent 12 }}
+          {{- end }}
+        {{- end }}
+        {{- else }}
+        - name: {{ $containerName }}
+          port: {{ $containerValues.service.ports | first | default dict | pluck "port" | first | default 80 }}
+        {{- end }}
+      {{- if .middlewares }}
+      middlewares:
+        {{- range .middlewares }}
+        - name: {{ .name }}
+          {{- if .namespace }}
+          namespace: {{ .namespace }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+  {{- if $containerValues.ingressroute.tls }}
+  tls:
+    {{- if kindIs "map" $containerValues.ingressroute.tls }}
+    {{- with $containerValues.ingressroute.tls }}
+    {{- if .secretName }}
+    secretName: {{ .secretName }}
+    {{- end }}
+    {{- if .options }}
+    options:
+      name: {{ .options.name }}
+      {{- if .options.namespace }}
+      namespace: {{ .options.namespace }}
+      {{- end }}
+    {{- end }}
+    {{- if .certResolver }}
+    certResolver: {{ .certResolver }}
+    {{- end }}
+    {{- if .domains }}
+    domains:
+      {{- range .domains }}
+      - main: {{ .main }}
+        {{- if .sans }}
+        sans:
+          {{- range .sans }}
+          - {{ . }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- else }}
+    {{- toYaml $containerValues.ingressroute.tls | nindent 4 }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- end -}}

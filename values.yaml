@@ -151,7 +151,7 @@ containers:
       annotations: {}
       labels: {}
 
-    # Ingress configuration
+    # Ingress configuration (Kubernetes native)
     ingress:
       enabled: false
       annotations:
@@ -164,6 +164,20 @@ containers:
             - path: /
               pathType: Prefix
       tls: []
+      
+    # Traefik IngressRoute configuration (alternative to standard Ingress)
+    ingressroute:
+      enabled: false
+      annotations: {}
+      entryPoints:
+        - web
+      routes:
+        - match: "Host(`chart-example.local`)"
+          kind: Rule
+          services:
+            - port: 80
+          middlewares: []
+      tls: {}
 
     # ConfigMaps configuration
     configMaps:
@@ -180,10 +194,39 @@ containers:
     #         "key": "value"
     #       }
 
-    # Secret configuration
+    # Secret configuration (Kubernetes native)
     secret:
       enabled: false
       stringData: {}
+      
+    # AWS Secrets Store CSI Driver configuration
+    awsSecrets:
+      enabled: false
+      # AWS region for secrets (defaults to global.region)
+      region: ""
+      # Optional failover region
+      failoverRegion: ""
+      # Mount path for secrets volume in container
+      mountPath: "/mnt/secrets-store"
+      # Optional file permissions for mounted secrets
+      pathPermissions: "0644"
+      # Secrets to mount from AWS Secrets Manager/Parameter Store
+      secrets: []
+        # - name: "example/secret"         # Name of the secret in AWS
+        #   type: "secretsmanager"         # secretsmanager or ssmparameter
+        #   fileName: "my-secret-file"     # Optional filename for the mounted secret
+        #   version: "1"                   # Optional version of the secret
+        #   jmesPath:                       # Optional JMESPath for JSON parsing
+        #     username: "username-file"     # Extract username field to username-file
+        #     password: "password-file"     # Extract password field to password-file
+      # Optionally sync secrets to Kubernetes Secret objects
+      syncSecrets: []
+        # - name: "my-k8s-secret"          # Name of the K8s Secret object
+        #   type: "Opaque"                 # Type of the K8s Secret
+        #   data:
+        #     USERNAME: 
+        #       objectName: "example/secret" # AWS Secret name
+        #       objectKey: "username"        # Optional JSON key to extract
 
     # Persistent Volume Claim
     persistentVolumeClaim:

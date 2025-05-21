@@ -102,9 +102,12 @@ spec:
           resources:
             {{- toYaml $containerValues.container.resources | nindent 12 }}
           {{- end }}
-          {{- if $containerValues.container.volumeMounts }}
+          {{- if or $containerValues.container.volumeMounts (and (hasKey $containerValues "awsSecrets") $containerValues.awsSecrets.enabled $containerValues.awsSecrets.mountPath) }}
           volumeMounts:
+            {{- if $containerValues.container.volumeMounts }}
             {{- toYaml $containerValues.container.volumeMounts | nindent 12 }}
+            {{- end }}
+            {{- include "psb1-helm-base-chart.acsp-volumemount" (list $ $containerName) | nindent 12 }}
           {{- end }}
           {{- if $containerValues.container.livenessProbe.enabled }}
           livenessProbe:
@@ -121,7 +124,7 @@ spec:
         {{- if $containerValues.container.sidecars }}
         {{- toYaml $containerValues.container.sidecars | nindent 8 }}
         {{- end }}
-      {{- if or $containerValues.persistentVolumeClaim.enabled (gt (len $containerValues.container.volumeMounts) 0) }}
+      {{- if or $containerValues.persistentVolumeClaim.enabled (gt (len $containerValues.container.volumeMounts) 0) (and (hasKey $containerValues "awsSecrets") $containerValues.awsSecrets.enabled) }}
       volumes:
         {{- if $containerValues.persistentVolumeClaim.enabled }}
         - name: {{ $containerName }}-storage
@@ -144,6 +147,7 @@ spec:
             name: {{ $containerName }}-{{ $configMapName }}
         {{- end }}
         {{- end }}
+        {{- include "psb1-helm-base-chart.acsp-mount" (list $ $containerName) | nindent 8 }}
       {{- end }}
 {{- end }}
 {{- end -}}

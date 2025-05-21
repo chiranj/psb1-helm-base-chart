@@ -3,10 +3,12 @@
 {{ include "psb1-helm-base-chart.serviceaccount" (list $ $containerName) }}
 {{ include "psb1-helm-base-chart.configmap" (list $ $containerName) }}
 {{ include "psb1-helm-base-chart.secret" (list $ $containerName) }}
+{{ include "psb1-helm-base-chart.acsp" (list $ $containerName) }}
 {{ include "psb1-helm-base-chart.pvc" (list $ $containerName) }}
 {{ include "psb1-helm-base-chart.deployment" (list $ $containerName) }}
 {{ include "psb1-helm-base-chart.service" (list $ $containerName) }}
 {{ include "psb1-helm-base-chart.ingress" (list $ $containerName) }}
+{{ include "psb1-helm-base-chart.ingressroute" (list $ $containerName) }}
 {{ include "psb1-helm-base-chart.hpa" (list $ $containerName) }}
 {{ include "psb1-helm-base-chart.kedascaledobject" (list $ $containerName) }}
 {{ include "psb1-helm-base-chart.pdb" (list $ $containerName) }}
