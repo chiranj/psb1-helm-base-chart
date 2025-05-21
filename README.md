@@ -380,4 +380,8 @@ This approach assumes the GitLab runner is running on an EC2 instance with an IA
 
 remote: INFO: GL-HOOK-ERR: Commit Rejected because the following secrets were detected: INFO: Finding 1 - Commit:45b054950fcbb1156a15deb3135fd9f200396c6f, File:sample-values.yaml, Line:346. Finding 2 - Commit:45b054950fcbb1156a15deb3135fd9f200396c6f, File:sample-values.yaml, Line:347. . Refer to "Secrets Management: Pushing a branch blocked by push protection" article in the DAB wiki. To view a complete report of findings, you are required to use
 
+
+ helm template psb-sample charts/psb1-helm-base-chart-0.2.1.tgz  \ # collapsed multi-line command
+Error: template: psb1-helm-base-chart/templates/main.yaml:5:3: executing "psb1-helm-base-chart/templates/main.yaml" at <include "psb1-helm-base-chart.secret" (list $ $containerName)>: error calling include: template: psb1-helm-base-chart/templates/secret.yaml:5:52: executing "psb1-helm-base-chart.secret" at <$containerValues.secret.enabled>: nil pointer evaluating interface {}.enabled
+
 Copyright © 2023
