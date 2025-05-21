@@ -377,4 +377,7 @@ This approach assumes the GitLab runner is running on an EC2 instance with an IA
 
 ## License
 
+
+remote: INFO: GL-HOOK-ERR: Commit Rejected because the following secrets were detected: INFO: Finding 1 - Commit:45b054950fcbb1156a15deb3135fd9f200396c6f, File:sample-values.yaml, Line:346. Finding 2 - Commit:45b054950fcbb1156a15deb3135fd9f200396c6f, File:sample-values.yaml, Line:347. . Refer to "Secrets Management: Pushing a branch blocked by push protection" article in the DAB wiki. To view a complete report of findings, you are required to use
+
 Copyright © 2023
