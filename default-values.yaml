@@ -1,0 +1,166 @@
+# Default values with minimal configuration
+global:
+  namespace: ""
+  labels: {}
+  annotations: {}
+  clusterName: ""
+  region: ""
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  pdb:
+    enabled: false
+    minAvailable: 1
+    maxUnavailable: null
+  securityContext: {}
+  imagePullSecrets: []
+  networkPolicy:
+    enabled: false
+  serviceAccount:
+    create: false
+    annotations: {}
+
+# Custom Kubernetes manifests to include
+extraDeploy: []
+
+containers:
+  # Example container configuration
+  example:
+    enabled: false
+    
+    # Deployment settings
+    deployment:
+      replicas: 1
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 25%
+          maxUnavailable: 25%
+      revisionHistoryLimit: 10
+      annotations: {}
+      labels: {}
+      podAnnotations: {}
+      podLabels: {}
+      terminationGracePeriodSeconds: 30
+      nodeSelector: {}
+      tolerations: []
+      affinity: {}
+      securityContext: {}
+      imagePullSecrets: []
+
+    # Container spec
+    container:
+      image:
+        repository: ""
+        tag: ""
+        pullPolicy: IfNotPresent
+      command: []
+      args: []
+      securityContext: {}
+      resources:
+        requests:
+          cpu: ""
+          memory: ""
+        limits:
+          cpu: ""
+          memory: ""
+      livenessProbe:
+        enabled: false
+      readinessProbe:
+        enabled: false
+      startupProbe:
+        enabled: false
+      env: []
+      envFrom: []
+      volumeMounts: []
+      ports: []
+      sidecars: []
+      initContainers: []
+
+    # Service configuration
+    service:
+      enabled: false
+      type: ClusterIP
+      ports: []
+      annotations: {}
+      labels: {}
+
+    # Ingress configuration (Kubernetes native)
+    ingress:
+      enabled: false
+      annotations: {}
+      hosts: []
+      tls: []
+      
+    # Traefik IngressRoute configuration
+    ingressroute:
+      enabled: false
+      annotations: {}
+      entryPoints: []
+      routes: []
+      tls: {}
+
+    # ConfigMaps configuration
+    configMaps:
+      default:
+        enabled: false
+        data: {}
+
+    # Secret configuration (Kubernetes native)
+    secret:
+      enabled: false
+      stringData: {}
+      
+    # AWS Secrets and Configuration Provider (ASCP)
+    awsSecrets:
+      enabled: false
+      region: ""
+      failoverRegion: ""
+      mountPath: ""
+      pathPermissions: ""
+      secrets: []
+      syncSecrets: []
+
+    # Persistent Volume Claim
+    persistentVolumeClaim:
+      enabled: false
+      storageClassName: ""
+      accessModes: []
+      size: ""
+      annotations: {}
+
+    # Horizontal Pod Autoscaler
+    hpa:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 1
+      targetCPUUtilizationPercentage: 80
+      targetMemoryUtilizationPercentage: 80
+      behavior: {}
+
+    # KEDA ScaledObject
+    keda:
+      enabled: false
+      minReplicaCount: 1
+      maxReplicaCount: 1
+      pollingInterval: 30
+      cooldownPeriod: 300
+      triggers: []
+
+    # ServiceMonitor for Prometheus
+    serviceMonitor:
+      enabled: false
+      interval: ""
+      scrapeTimeout: ""
+      path: ""
+      port: ""
+
+    # Network policy
+    networkPolicy:
+      enabled: false
+      policyTypes: []
+      ingress: []
+      egress: []
+
+    # Additional resources
+    additionalResources: []
