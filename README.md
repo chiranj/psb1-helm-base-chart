@@ -381,7 +381,7 @@ This approach assumes the GitLab runner is running on an EC2 instance with an IA
 remote: INFO: GL-HOOK-ERR: Commit Rejected because the following secrets were detected: INFO: Finding 1 - Commit:45b054950fcbb1156a15deb3135fd9f200396c6f, File:sample-values.yaml, Line:346. Finding 2 - Commit:45b054950fcbb1156a15deb3135fd9f200396c6f, File:sample-values.yaml, Line:347. . Refer to "Secrets Management: Pushing a branch blocked by push protection" article in the DAB wiki. To view a complete report of findings, you are required to use
 
 
- helm template psb-sample charts/psb1-helm-base-chart-0.2.1.tgz  \ # collapsed multi-line command
-Error: template: psb1-helm-base-chart/templates/main.yaml:5:3: executing "psb1-helm-base-chart/templates/main.yaml" at <include "psb1-helm-base-chart.secret" (list $ $containerName)>: error calling include: template: psb1-helm-base-chart/templates/secret.yaml:5:52: executing "psb1-helm-base-chart.secret" at <$containerValues.secret.enabled>: nil pointer evaluating interface {}.enabled
-
+Error: template: psb1-helm-base-chart/templates/main.yaml:7:3: executing "psb1-helm-base-chart/templates/main.yaml" at <include "psb1-helm-base-chart.deployment" (list $ $containerName)>: error calling include: template: psb1-helm-base-chart/templates/deployment.yaml:109:33: executing "psb1-helm-base-chart.deployment" at <$containerValues.container.livenessProbe.enabled>: nil pointer evaluating interface {}.enabled
+helm.go:92: 2025-05-21 23:51:08.196259215 +0000 UTC m=+0.054009443 [debug] template: psb1-helm-base-chart/templates/main.yaml:7:3: executing "psb1-helm-base-chart/templates/main.yaml" at <include "psb1-helm-base-chart.deployment" (list $ $containerName)>: error calling include: template: psb1-helm-base-chart/templates/deployment.yaml:109:33: executing "psb1-helm-base-chart.deployment" at <$containerValues.container.livenessProbe.enabled>: nil pointer evaluating interface {}.enabled
+Cleaning up project directory and file base
 Copyright © 2023
