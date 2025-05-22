@@ -378,5 +378,7 @@ This approach assumes the GitLab runner is running on an EC2 instance with an IA
 ## License
 
 
-yq -n '.service.annotations."service.beta.kubernetes.io/aws-load-balancer-subnets" = env(AWS_SUBNET_IDS)'
+# Run sequentially
+yq -i '.service.annotations."service.beta.kubernetes.io/aws-load-balancer-subnets" = env(AWS_SUBNET_IDS)' values.yaml
+yq -i '.service.annotations."external-dns.alpha.kubernetes.io/hostname" = env(AWS_DOMAIN_NAME)' values.yaml
 
