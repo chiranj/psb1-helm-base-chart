@@ -437,3 +437,6 @@ psb1-helm-base-chart:
             enabled: false
 ```
 Copyright © 2023
+install.go:242: 2025-05-22 00:33:05.750882702 +0000 UTC m=+0.054792179 [debug] CHART PATH: /builds/gitlab/psb/containers/helm/deployment-repo/charts/psb1-helm-base-chart-0.2.1.tgz
+Error: template: psb1-helm-base-chart/templates/main.yaml:13:3: executing "psb1-helm-base-chart/templates/main.yaml" at <include "psb1-helm-base-chart.networkpolicy" (list $ $containerName)>: error calling include: template: no template "psb1-helm-base-chart.networkpolicy" associated with template "gotpl"
+helm.go:92: 2025-05-22 00:33:05.765729022 +0000 UTC m=+0.069638493 [debug] template: psb1-helm-base-chart/templates/main.yaml:13:3: executing "psb1-helm-base-chart/templates/main.yaml" at <include "psb1-helm-base-chart.networkpolicy" (list $ $containerName)>: error calling include: template: no template "psb1-helm-base-chart.networkpolicy" associated with template "gotpl"
