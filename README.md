@@ -382,8 +382,58 @@ remote: INFO: GL-HOOK-ERR: Commit Rejected because the following secrets were de
 
 
 ```yaml
-Error: template: psb1-helm-base-chart/templates/main.yaml:7:3: executing "psb1-helm-base-chart/templates/main.yaml" at <include "psb1-helm-base-chart.deployment" (list $ $containerName)>: error calling include: template: psb1-helm-base-chart/templates/deployment.yaml:109:33: executing "psb1-helm-base-chart.deployment" at <$containerValues.container.livenessProbe.enabled>: nil pointer evaluating interface {}.enabled
-helm.go:92: 2025-05-21 23:51:08.196259215 +0000 UTC m=+0.054009443 [debug] template: psb1-helm-base-chart/templates/main.yaml:7:3: executing "psb1-helm-base-chart/templates/main.yaml" at <include "psb1-helm-base-chart.deployment" (list $ $containerName)>: error calling include: template: psb1-helm-base-chart/templates/deployment.yaml:109:33: executing "psb1-helm-base-chart.deployment" at <$containerValues.container.livenessProbe.enabled>: nil pointer evaluating interface {}.enabled
-Cleaning up project directory and file base
+psb1-helm-base-chart:
+    containers:
+      yourapp:
+        enabled: true
+        deployment:
+          replicas: 1
+          # Required minimal structure
+          strategy:
+            type: RollingUpdate
+          terminationGracePeriodSeconds: 30
+
+        container:
+          image:
+            repository: your-image
+            tag: latest
+            pullPolicy: IfNotPresent
+          # Required probes
+          livenessProbe:
+            enabled: false
+          readinessProbe:
+            enabled: false
+          startupProbe:
+            enabled: false
+          # Empty arrays for optional lists
+          ports: []
+          env: []
+          volumeMounts: []
+
+        # Required sections
+        service:
+          enabled: false
+          ports: []
+
+        # All these need to exist with enabled: false
+        secret:
+          enabled: false
+        ingress:
+          enabled: false
+        persistentVolumeClaim:
+          enabled: false
+        hpa:
+          enabled: false
+        keda:
+          enabled: false
+        serviceMonitor:
+          enabled: false
+        networkPolicy:
+          enabled: false
+
+        # ConfigMaps need special structure
+        configMaps:
+          default:
+            enabled: false
 ```
 Copyright © 2023
