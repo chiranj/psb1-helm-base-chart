@@ -437,6 +437,102 @@ psb1-helm-base-chart:
             enabled: false
 ```
 Copyright © 2023
-install.go:242: 2025-05-22 00:33:05.750882702 +0000 UTC m=+0.054792179 [debug] CHART PATH: /builds/gitlab/psb/containers/helm/deployment-repo/charts/psb1-helm-base-chart-0.2.1.tgz
-Error: template: psb1-helm-base-chart/templates/main.yaml:13:3: executing "psb1-helm-base-chart/templates/main.yaml" at <include "psb1-helm-base-chart.networkpolicy" (list $ $containerName)>: error calling include: template: no template "psb1-helm-base-chart.networkpolicy" associated with template "gotpl"
-helm.go:92: 2025-05-22 00:33:05.765729022 +0000 UTC m=+0.069638493 [debug] template: psb1-helm-base-chart/templates/main.yaml:13:3: executing "psb1-helm-base-chart/templates/main.yaml" at <include "psb1-helm-base-chart.networkpolicy" (list $ $containerName)>: error calling include: template: no template "psb1-helm-base-chart.networkpolicy" associated with template "gotpl"
+ k get endpoints frontend -npsb-sample -o yaml
+apiVersion: v1
+kind: Endpoints
+metadata:
+  creationTimestamp: "2025-05-22T00:59:43Z"
+  labels:
+    app: sample-app
+    app.kubernetes.io/instance: psb-sample
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: frontend
+    environment: dev
+    helm.sh/chart: psb1-helm-base-chart-0.2.2
+    tier: services
+  name: frontend
+  namespace: psb-sample
+  resourceVersion: "3177297"
+  uid: 52f5ff2f-8554-4bbd-84a0-53f297325afd
+subsets:
+- addresses:
+  - ip: 10.201.26.27
+    nodeName: ip-10-201-26-46.ec2.internal
+    targetRef:
+      kind: Pod
+      name: frontend-59f9d8bcfd-ztlt9
+      namespace: psb-sample
+      uid: 3aec7c9a-8d10-43b5-ac75-cd98eb7e73be
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+[ec2-user@ip-10-201-26-39 ~]$ k get pods -npsb-smple
+No resources found in psb-smple namespace.
+[ec2-user@ip-10-201-26-39 ~]$ k get pods -npsb-sample
+NAME                        READY   STATUS    RESTARTS   AGE
+backend-6d9dd58644-wz8kl    1/1     Running   0          9h
+frontend-59f9d8bcfd-ztlt9   1/1     Running   0          9h
+[ec2-user@ip-10-201-26-39 ~]$ k get ingressroute frontend -o yaml
+Error from server (NotFound): ingressroutes.traefik.io "frontend" not found
+[ec2-user@ip-10-201-26-39 ~]$ k get ingressroute frontend -o yaml -npsb-sample
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"traefik.io/v1alpha1","kind":"IngressRoute","metadata":{"annotations":{},"labels":{"app":"sample-app","app.kubernetes.io/instance":"psb-sample","app.kubernetes.io/managed-by":"Helm","app.kubernetes.io/name":"frontend","environment":"dev","helm.sh/chart":"psb1-helm-base-chart-0.2.2","tier":"services"},"name":"frontend","namespace":"psb-sample"},"spec":{"entryPoints":["web"],"routes":[{"kind":"Rule","match":"Host(`frontned.psb.awslab.uspto.gov`) \u0026\u0026 PathPrefix(`/`)","services":[{"name":"frontend","port":80}]}]}}
+  creationTimestamp: "2025-05-22T09:32:20Z"
+  generation: 1
+  labels:
+    app: sample-app
+    app.kubernetes.io/instance: psb-sample
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: frontend
+    environment: dev
+    helm.sh/chart: psb1-helm-base-chart-0.2.2
+    tier: services
+  name: frontend
+  namespace: psb-sample
+  resourceVersion: "3181546"
+  uid: 429d7839-37cf-4c17-b249-6b8e304fc006
+spec:
+  entryPoints:
+  - web
+  routes:
+  - kind: Rule
+    match: Host(`frontned.psb.awslab.uspto.gov`) && PathPrefix(`/`)
+    services:
+    - name: frontend
+      port: 80
+[ec2-user@ip-10-201-26-39 ~]$ k ddescribe svc frontend -n psb-sample
+error: unknown command "ddescribe" for "kubectl"
+
+Did you mean this?
+        describe
+[ec2-user@ip-10-201-26-39 ~]$ k describe svc frontend -n psb-sample
+Name:              frontend
+Namespace:         psb-sample
+Labels:            app=sample-app
+                   app.kubernetes.io/instance=psb-sample
+                   app.kubernetes.io/managed-by=Helm
+                   app.kubernetes.io/name=frontend
+                   environment=dev
+                   helm.sh/chart=psb1-helm-base-chart-0.2.2
+                   tier=services
+Annotations:       <none>
+Selector:          app.kubernetes.io/instance=psb-sample,app.kubernetes.io/name=frontend
+Type:              ClusterIP
+IP Family Policy:  SingleStack
+IP Families:       IPv4
+IP:                172.20.104.79
+IPs:               172.20.104.79
+Port:              http  80/TCP
+TargetPort:        http/TCP
+Endpoints:         10.201.26.27:8080
+Session Affinity:  None
+Events:            <none>
+[ec2-user@ip-10-201-26-39 ~]$ k get svc -n traefik -o wide
+NAME      TYPE           CLUSTER-IP       EXTERNAL-IP                                                PORT(S)                      AGE     SELECTOR
+traefik   LoadBalancer   172.20.196.255   traefik-nlb-5c6d0cf5a7a99ac5.elb.us-east-1.amazonaws.com   80:30080/TCP,443:30443/TCP   2d16h   app.kubernetes.io/instance=traefik-traefik,app.kubernetes.io/name=traefik
+
