@@ -11,7 +11,7 @@ flowchart TD
         NLB --> TG[Target Group<br/>Health Checks]
     end
     
-    subgraph EKS["🎯 EKS Cluster"]
+    subgraph EKS["EKS Cluster"]
         TG --> WN[Worker Nodes<br/>NodePorts: 30080, 30443]
         WN --> Traefik[Traefik Pods<br/>Ingress Controller]
         
