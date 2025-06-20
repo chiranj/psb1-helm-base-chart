@@ -1,0 +1,132 @@
+# Test environment specific values
+global:
+  namespace: test-namespace
+  labels:
+    environment: test
+  region: "us-east-1"
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+
+containers:
+  api:
+    # Test environment specific deployment settings
+    deployment:
+      replicas: 2
+      nodeSelector:
+        node-pool: test
+    
+    # Test environment specific container settings
+    container:
+      # Note: We don't specify image.tag here as it comes from values-base.yaml
+      resources:
+        requests:
+          cpu: 300m
+          memory: 512Mi
+        limits:
+          cpu: 600m
+          memory: 1Gi
+      # Test environment specific environment variables
+      env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "test"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: db-config-test
+              key: host
+      envFrom:
+        - configMapRef:
+            name: api-common-config-test
+    
+    # Test environment specific ConfigMaps
+    configMaps:
+      app:
+        enabled: true
+        data:
+          application.properties: |
+            server.port=8080
+            spring.application.name=api-service
+            spring.profiles.active=test
+            logging.level.root=INFO
+            logging.level.org.springframework=INFO
+      database:
+        enabled: true
+        data:
+          database.conf: |
+            host=db-test.example.com
+            port=5432
+            database=app_db_test
+            pool.size=10
+    
+    # Test environment specific secrets
+    secret:
+      enabled: true
+      stringData:
+        api-key: "test-api-key-789"
+        encryption-key: "test-encryption-key-012"
+    
+    # Test environment specific ingress
+    ingressroute:
+      enabled: true
+      entryPoints:
+        - web
+        - websecure
+      routes:
+        - match: "Host(`api-test.example.com`)"
+          kind: Rule
+          services:
+            - port: 80
+      tls:
+        certResolver: le
+    
+    # Test environment specific HPA
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 4
+      targetCPUUtilizationPercentage: 75
+    
+    # Test environment specific ServiceMonitor
+    serviceMonitor:
+      enabled: true
+      interval: 15s
+      path: /metrics
+      port: metrics
+
+  # Worker service with test-specific settings
+  worker:
+    deployment:
+      replicas: 2
+      nodeSelector:
+        node-pool: test
+    
+    container:
+      resources:
+        requests:
+          cpu: 200m
+          memory: 512Mi
+        limits:
+          cpu: 400m
+          memory: 1Gi
+      # Test environment variables
+      env:
+        - name: WORKER_QUEUE
+          value: "test-queue"
+        - name: WORKER_CONCURRENCY
+          value: "5"
+    
+    # Test KEDA configuration
+    keda:
+      enabled: true
+      minReplicaCount: 1
+      maxReplicaCount: 5
+      triggers:
+        - type: aws-sqs-queue
+          metadata:
+            queueURL: https://sqs.us-east-1.amazonaws.com/123456789012/test-worker-queue
+            queueLength: "5"
+            awsRegion: us-east-1
