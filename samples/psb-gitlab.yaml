@@ -1,0 +1,69 @@
+
+default:
+  tags:
+    - aws_lab
+stages:
+  - validate
+  - deploy
+
+variables:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: eks132-psb-paas-eks-cluster-11
+  HELM_NAMESPACE: psb-sample
+
+.aws_auth: &aws_auth
+  before_script:
+    - apk update
+    - apk add --no-cache curl bash openssl jq yq python3 git aws-cli
+    - curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+    - chmod 700 get_helm.sh
+    - ./get_helm.sh
+    - helm version
+    - echo "Installing kubectl..."
+    - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    - chmod +x kubectl
+    - mv kubectl /usr/local/bin/
+    - kubectl version --client
+    - echo "Authenticating with AWS..."
+    - aws --version
+    - aws configure set region $AWS_REGION
+    - aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
+    - kubectl get svc -A
+
+
+validate:
+ stage: validate
+ image: registry.gitlab.com/gitlab-org/cloud-deploy/aws-base:latest
+ <<: *aws_auth
+ script:
+   - echo "Installing Helm..."
+   - curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
+   - echo "Validating Chart.yaml and values.yaml..."
+   - helm lint .
+   - echo "Validating Kubernetes resources that would be created..."
+   #- helm dependency update .
+   #- helm template traefik . --values values.yaml
+
+
+
+deploy_psb-sample:
+  stage: deploy
+  image: alpine:latest
+  <<: *aws_auth
+  script:
+    - export KUBECONFIG=/root/.kube/config
+    - helm repo add psb1-helm-base-chart https://dev-cicm.etc.uspto.gov/nexus3/repository/psb1-helm-base-chart/
+    - helm repo update
+    - mkdir charts
+    - helm pull psb1-helm-base-chart/psb1-helm-base-chart --version 0.2.2 --destination charts/
+    - kubectl create ns $HELM_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+    - |
+      helm template psb-sample charts/psb1-helm-base-chart-0.2.2.tgz  \
+        --create-namespace \
+        --namespace $HELM_NAMESPACE \
+        --debug \
+        --values values.yaml > $HELM_NAMESPACE.yaml
+    - cat $HELM_NAMESPACE.yaml
+    - kubectl apply -f $HELM_NAMESPACE.yaml
+    - kubectl get pods -n $HELM_NAMESPACE
+
