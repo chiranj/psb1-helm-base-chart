@@ -1,0 +1,135 @@
+# Base values with common non-environment specific settings
+global:
+  # These can be overridden in environment-specific files if needed
+  labels:
+    app: my-application
+  annotations:
+    app.kubernetes.io/part-of: my-platform
+  clusterName: "eks-cluster"
+  serviceAccount:
+    create: true
+
+# List of containers/applications to deploy
+containers:
+  api:
+    enabled: true
+    # Deployment settings that are common across environments
+    deployment:
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 25%
+          maxUnavailable: 25%
+      revisionHistoryLimit: 10
+      terminationGracePeriodSeconds: 30
+    
+    # Container spec with the IMAGE TAG set here (common across envs)
+    container:
+      image:
+        repository: my-org/api-service
+        tag: 1.2.3  # This will be the same across all environments
+        pullPolicy: IfNotPresent
+      # Common probes configuration
+      livenessProbe:
+        enabled: true
+        httpGet:
+          path: /health
+          port: http
+        initialDelaySeconds: 30
+        periodSeconds: 10
+      readinessProbe:
+        enabled: true
+        httpGet:
+          path: /ready
+          port: http
+        initialDelaySeconds: 5
+        periodSeconds: 10
+      # Common ports configuration
+      ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 9090
+          protocol: TCP
+    
+    # Common service configuration
+    service:
+      enabled: true
+      type: ClusterIP
+      ports:
+        - port: 80
+          targetPort: http
+          protocol: TCP
+          name: http
+        - port: 9090
+          targetPort: metrics
+          protocol: TCP
+          name: metrics
+    
+    # Empty placeholders for environment-specific configurations
+    # These will be populated in the environment-specific values files
+    ingress:
+      enabled: false
+    
+    ingressroute:
+      enabled: false
+    
+    configMaps:
+      default:
+        enabled: false
+    
+    secret:
+      enabled: false
+    
+    awsSecrets:
+      enabled: false
+    
+    persistentVolumeClaim:
+      enabled: false
+    
+    hpa:
+      enabled: false
+    
+    keda:
+      enabled: false
+    
+    serviceMonitor:
+      enabled: false
+    
+    networkPolicy:
+      enabled: false
+
+  # Worker service with common settings
+  worker:
+    enabled: true
+    deployment:
+      strategy:
+        type: Recreate
+      terminationGracePeriodSeconds: 60
+    
+    container:
+      image:
+        repository: my-org/worker-service
+        tag: 1.2.3  # Same tag as API for consistency
+        pullPolicy: IfNotPresent
+      livenessProbe:
+        enabled: true
+        httpGet:
+          path: /health
+          port: http
+      readinessProbe:
+        enabled: true
+        httpGet:
+          path: /ready
+          port: http
+    
+    # Empty placeholders for environment-specific configurations
+    service:
+      enabled: false
+    
+    persistentVolumeClaim:
+      enabled: false
+    
+    keda:
+      enabled: false
