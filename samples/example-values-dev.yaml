@@ -1,0 +1,132 @@
+# Development environment specific values
+global:
+  namespace: dev-namespace
+  labels:
+    environment: development
+  region: "us-east-1"
+  # Development specific security context
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+
+containers:
+  api:
+    # Development specific deployment settings
+    deployment:
+      replicas: 1
+      # Dev-specific node selectors
+      nodeSelector:
+        node-pool: dev
+    
+    # Development specific container settings
+    container:
+      # Note: We don't specify image.tag here as it comes from values-base.yaml
+      # Development resource settings (typically lower than prod)
+      resources:
+        requests:
+          cpu: 200m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      # Development specific environment variables
+      env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "dev"
+        - name: LOG_LEVEL
+          value: "DEBUG"
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: db-config-dev
+              key: host
+      envFrom:
+        - configMapRef:
+            name: api-common-config-dev
+    
+    # Development specific ConfigMaps
+    configMaps:
+      app:
+        enabled: true
+        data:
+          application.properties: |
+            server.port=8080
+            spring.application.name=api-service
+            spring.profiles.active=dev
+            logging.level.root=DEBUG
+            logging.level.org.springframework=INFO
+      database:
+        enabled: true
+        data:
+          database.conf: |
+            host=db-dev.example.com
+            port=5432
+            database=app_db_dev
+            pool.size=5
+    
+    # Development specific secrets
+    secret:
+      enabled: true
+      stringData:
+        api-key: "dev-api-key-123"
+        encryption-key: "dev-encryption-key-456"
+    
+    # Development specific ingress
+    ingressroute:
+      enabled: true
+      entryPoints:
+        - web
+      routes:
+        - match: "Host(`api-dev.example.com`)"
+          kind: Rule
+          services:
+            - port: 80
+    
+    # Development specific HPA (minimal scaling)
+    hpa:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 2
+      targetCPUUtilizationPercentage: 80
+    
+    # Development specific ServiceMonitor
+    serviceMonitor:
+      enabled: true
+      interval: 15s
+      path: /metrics
+      port: metrics
+
+  # Worker service with dev-specific settings
+  worker:
+    deployment:
+      replicas: 1
+      nodeSelector:
+        node-pool: dev
+    
+    container:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 300m
+          memory: 512Mi
+      # Dev-specific environment variables
+      env:
+        - name: WORKER_QUEUE
+          value: "dev-queue"
+        - name: WORKER_CONCURRENCY
+          value: "2"
+    
+    # Development specific KEDA configuration
+    keda:
+      enabled: true
+      minReplicaCount: 1
+      maxReplicaCount: 3
+      triggers:
+        - type: aws-sqs-queue
+          metadata:
+            queueURL: https://sqs.us-east-1.amazonaws.com/123456789012/dev-worker-queue
+            queueLength: "5"
+            awsRegion: us-east-1
