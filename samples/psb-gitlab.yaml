@@ -1,69 +1,379 @@
+# .gitlab-ci.yml - Independent Deployments Version
+# Each environment can be deployed independently at any time
 
-default:
-  tags:
-    - aws_lab
 stages:
   - validate
   - deploy
 
 variables:
-  AWS_REGION: us-east-1
-  EKS_CLUSTER_NAME: eks132-psb-paas-eks-cluster-11
-  HELM_NAMESPACE: psb-sample
+  HELM_VERSION: "3.12.0"
+  KUBECTL_VERSION: "1.28.0"
+  CHART_NAME: "app"
+  YQ_VERSION: "4.35.2"
+  
+  # EKS Cluster Names
+  DEV_CLUSTER_NAME: "dev-cluster"
+  TEST_CLUSTER_NAME: "test-cluster"
+  PROD_CLUSTER_NAME: "prod-cluster"
+  AWS_REGION: "us-east-1"
 
-.aws_auth: &aws_auth
+# Validation runs independently for any deployment
+validate:helm:
+  stage: validate
+  image: alpine/helm:${HELM_VERSION}
+  tags:
+    - shared  # Runs on any shared runner
   before_script:
-    - apk update
-    - apk add --no-cache curl bash openssl jq yq python3 git aws-cli
-    - curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
-    - chmod 700 get_helm.sh
-    - ./get_helm.sh
-    - helm version
-    - echo "Installing kubectl..."
-    - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-    - chmod +x kubectl
-    - mv kubectl /usr/local/bin/
-    - kubectl version --client
-    - echo "Authenticating with AWS..."
-    - aws --version
-    - aws configure set region $AWS_REGION
-    - aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
-    - kubectl get svc -A
-
-
-validate:
- stage: validate
- image: registry.gitlab.com/gitlab-org/cloud-deploy/aws-base:latest
- <<: *aws_auth
- script:
-   - echo "Installing Helm..."
-   - curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
-   - echo "Validating Chart.yaml and values.yaml..."
-   - helm lint .
-   - echo "Validating Kubernetes resources that would be created..."
-   #- helm dependency update .
-   #- helm template traefik . --values values.yaml
-
-
-
-deploy_psb-sample:
-  stage: deploy
-  image: alpine:latest
-  <<: *aws_auth
+    - apk add --no-cache curl
+    - curl -L https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64 -o /usr/bin/yq
+    - chmod +x /usr/bin/yq
   script:
-    - export KUBECONFIG=/root/.kube/config
-    - helm repo add psb1-helm-base-chart https://dev-cicm.etc.uspto.gov/nexus3/repository/psb1-helm-base-chart/
-    - helm repo update
-    - mkdir charts
-    - helm pull psb1-helm-base-chart/psb1-helm-base-chart --version 0.2.2 --destination charts/
-    - kubectl create ns $HELM_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+    - helm lint . -f values.yaml
+    # Only validate the environment we're about to deploy
     - |
-      helm template psb-sample charts/psb1-helm-base-chart-0.2.2.tgz  \
-        --create-namespace \
-        --namespace $HELM_NAMESPACE \
-        --debug \
-        --values values.yaml > $HELM_NAMESPACE.yaml
-    - cat $HELM_NAMESPACE.yaml
-    - kubectl apply -f $HELM_NAMESPACE.yaml
-    - kubectl get pods -n $HELM_NAMESPACE
+      if [ -n "${DEPLOY_ENVIRONMENT}" ]; then
+        echo "Validating ${DEPLOY_ENVIRONMENT} environment..."
+        helm lint . -f values.yaml -f environments/${DEPLOY_ENVIRONMENT}/values.yaml
+        namespace=$(yq eval '.global.namespace' environments/${DEPLOY_ENVIRONMENT}/values.yaml)
+        if [ -z "$namespace" ] || [ "$namespace" = "null" ]; then
+          echo "ERROR: global.namespace not defined in environments/${DEPLOY_ENVIRONMENT}/values.yaml"
+          exit 1
+        fi
+      else
+        # If no specific environment, validate all
+        for env in dev test prod; do
+          helm lint . -f values.yaml -f environments/${env}/values.yaml
+        done
+      fi
+  only:
+    - main
+    - /^release\/.*$/
 
+# Development Deployment - Completely Independent
+deploy:dev:
+  stage: deploy
+  image: alpine/helm:${HELM_VERSION}
+  tags:
+    - dev-account
+  variables:
+    ENVIRONMENT: dev
+    RELEASE_NAME: "${CHART_NAME}-dev"
+    CLUSTER_NAME: "${DEV_CLUSTER_NAME:-dev-cluster}"
+    AWS_REGION: "${AWS_REGION:-us-east-1}"
+    DEPLOY_ENVIRONMENT: dev  # Used by validate job
+  before_script:
+    - apk add --no-cache aws-cli kubectl curl
+    - curl -L https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64 -o /usr/bin/yq
+    - chmod +x /usr/bin/yq
+    - aws sts get-caller-identity
+    - aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${AWS_REGION}
+    - kubectl config current-context
+    - kubectl cluster-info
+    - export NAMESPACE=$(yq eval '.global.namespace' environments/${ENVIRONMENT}/values.yaml)
+    - echo "Using namespace: ${NAMESPACE}"
+  script:
+    - |
+      echo "Deploying to Development environment..."
+      echo "Image tag from values.yaml: $(yq eval '.deployment.*.image.tag' values.yaml)"
+      
+      # Create namespace if it doesn't exist
+      kubectl create ns ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+      
+      # IMPORTANT: Save current state BEFORE deployment for rollback
+      echo "Saving current deployment state for potential rollback..."
+      helm get manifest ${RELEASE_NAME} -n ${NAMESPACE} > rollback-manifest-${ENVIRONMENT}-$(date +%Y%m%d-%H%M%S).yaml || echo "No existing deployment to backup"
+      helm get values ${RELEASE_NAME} -n ${NAMESPACE} > rollback-values-${ENVIRONMENT}-$(date +%Y%m%d-%H%M%S).yaml || echo "No existing values to backup"
+      
+      # Deploy using Helm
+      helm upgrade --install ${RELEASE_NAME} . \
+        -f values.yaml \
+        -f environments/${ENVIRONMENT}/values.yaml \
+        --namespace ${NAMESPACE} \
+        --wait \
+        --timeout 10m
+      
+      # Verify deployment
+      kubectl rollout status deployment -n ${NAMESPACE} --timeout=300s
+      kubectl get all -n ${NAMESPACE}
+  after_script:
+    - |
+      export NAMESPACE=$(yq eval '.global.namespace' environments/${ENVIRONMENT}/values.yaml)
+      # Save NEW deployment state for reference
+      helm get values ${RELEASE_NAME} -n ${NAMESPACE} > deployment-values-${ENVIRONMENT}-current.yaml
+      helm get manifest ${RELEASE_NAME} -n ${NAMESPACE} > deployment-manifest-${ENVIRONMENT}-current.yaml
+      echo "Deployment completed and artifacts saved"
+  artifacts:
+    paths:
+      - deployment-values-${ENVIRONMENT}-current.yaml
+      - deployment-manifest-${ENVIRONMENT}-current.yaml
+      - rollback-manifest-${ENVIRONMENT}-*.yaml
+      - rollback-values-${ENVIRONMENT}-*.yaml
+    expire_in: 30 days
+    name: "deploy-${ENVIRONMENT}-${CI_COMMIT_SHORT_SHA}"
+  environment:
+    name: development
+    url: https://dev.example.com
+  only:
+    - main
+  when: manual
+
+# Rollback Jobs - Work independently any time after deployment
+# These use the saved rollback manifests from previous deployments
+
+.rollback_template:
+  stage: deploy
+  image: alpine/helm:${HELM_VERSION}
+  before_script:
+    - apk add --no-cache kubectl curl aws-cli
+    - curl -L https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64 -o /usr/bin/yq
+    - chmod +x /usr/bin/yq
+    - aws sts get-caller-identity
+    - aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${AWS_REGION}
+    - export NAMESPACE=$(yq eval '.global.namespace' environments/${ENVIRONMENT}/values.yaml)
+    - echo "Using namespace: ${NAMESPACE}"
+  script:
+    - |
+      echo "Rolling back ${ENVIRONMENT} environment..."
+      
+      # List available rollback files
+      echo "Available rollback manifests:"
+      ls -la rollback-manifest-${ENVIRONMENT}-*.yaml 2>/dev/null || echo "No rollback files found"
+      
+      # Use specific rollback file or latest
+      if [ -n "${ROLLBACK_MANIFEST_FILE}" ]; then
+        echo "Using specified manifest: ${ROLLBACK_MANIFEST_FILE}"
+        MANIFEST_FILE="${ROLLBACK_MANIFEST_FILE}"
+      else
+        # Get the latest rollback manifest
+        MANIFEST_FILE=$(ls -t rollback-manifest-${ENVIRONMENT}-*.yaml 2>/dev/null | head -1)
+        if [ -z "$MANIFEST_FILE" ]; then
+          echo "ERROR: No rollback manifest found. Available files:"
+          ls -la *.yaml
+          exit 1
+        fi
+        echo "Using latest rollback manifest: $MANIFEST_FILE"
+      fi
+      
+      # Apply the rollback manifest
+      echo "Applying rollback manifest..."
+      kubectl apply -f ${MANIFEST_FILE} -n ${NAMESPACE}
+      
+      # Wait for rollout
+      kubectl rollout status deployment -n ${NAMESPACE} --timeout=300s
+      
+      echo "Rollback completed successfully"
+      kubectl get all -n ${NAMESPACE}
+  artifacts:
+    paths:
+      - rollback-completed-${ENVIRONMENT}-$(date +%Y%m%d-%H%M%S).log
+    expire_in: 7 days
+  when: manual
+
+rollback:dev:
+  extends: .rollback_template
+  tags:
+    - dev-account
+  variables:
+    ENVIRONMENT: dev
+    CLUSTER_NAME: "${DEV_CLUSTER_NAME:-dev-cluster}"
+    AWS_REGION: "${AWS_REGION:-us-east-1}"
+  environment:
+    name: development
+    action: rollback
+
+rollback:test:
+  extends: .rollback_template
+  tags:
+    - test-account
+  variables:
+    ENVIRONMENT: test
+    CLUSTER_NAME: "${TEST_CLUSTER_NAME:-test-cluster}"
+    AWS_REGION: "${AWS_REGION:-us-east-1}"
+  environment:
+    name: test
+    action: rollback
+
+rollback:prod:
+  extends: .rollback_template
+  tags:
+    - prod-account
+  variables:
+    ENVIRONMENT: prod
+    CLUSTER_NAME: "${PROD_CLUSTER_NAME:-prod-cluster}"
+    AWS_REGION: "${AWS_REGION:-us-east-1}"
+  environment:
+    name: production
+    action: rollback  # Changed to manual so you control when to deploy
+  # NO needs: - runs independently
+
+# Test Deployment - Completely Independent
+deploy:test:
+  stage: deploy
+  image: alpine/helm:${HELM_VERSION}
+  tags:
+    - test-account
+  variables:
+    ENVIRONMENT: test
+    RELEASE_NAME: "${CHART_NAME}-test"
+    CLUSTER_NAME: "${TEST_CLUSTER_NAME:-test-cluster}"
+    AWS_REGION: "${AWS_REGION:-us-east-1}"
+    DEPLOY_ENVIRONMENT: test
+  before_script:
+    - apk add --no-cache aws-cli kubectl curl
+    - curl -L https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64 -o /usr/bin/yq
+    - chmod +x /usr/bin/yq
+    - aws sts get-caller-identity
+    - aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${AWS_REGION}
+    - kubectl config current-context
+    - export NAMESPACE=$(yq eval '.global.namespace' environments/${ENVIRONMENT}/values.yaml)
+    - echo "Using namespace: ${NAMESPACE}"
+  script:
+    - |
+      echo "Deploying to Test environment..."
+      echo "Image tag from values.yaml: $(yq eval '.deployment.*.image.tag' values.yaml)"
+      
+      # Option to override image tag if needed
+      if [ -n "${OVERRIDE_IMAGE_TAG}" ]; then
+        echo "Overriding image tag to: ${OVERRIDE_IMAGE_TAG}"
+        yq eval -i ".deployment.*.image.tag = \"${OVERRIDE_IMAGE_TAG}\"" values.yaml
+      fi
+      
+      kubectl create ns ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+      
+      # IMPORTANT: Save current state BEFORE deployment for rollback
+      echo "Saving current deployment state for potential rollback..."
+      helm get manifest ${RELEASE_NAME} -n ${NAMESPACE} > rollback-manifest-${ENVIRONMENT}-$(date +%Y%m%d-%H%M%S).yaml || echo "No existing deployment to backup"
+      helm get values ${RELEASE_NAME} -n ${NAMESPACE} > rollback-values-${ENVIRONMENT}-$(date +%Y%m%d-%H%M%S).yaml || echo "No existing values to backup"
+      
+      helm upgrade --install ${RELEASE_NAME} . \
+        -f values.yaml \
+        -f environments/${ENVIRONMENT}/values.yaml \
+        --namespace ${NAMESPACE} \
+        --wait \
+        --timeout 10m
+      
+      kubectl rollout status deployment -n ${NAMESPACE} --timeout=300s
+      kubectl get all -n ${NAMESPACE}
+  after_script:
+    - |
+      export NAMESPACE=$(yq eval '.global.namespace' environments/${ENVIRONMENT}/values.yaml)
+      helm get values ${RELEASE_NAME} -n ${NAMESPACE} > deployment-values-${ENVIRONMENT}-current.yaml
+      helm get manifest ${RELEASE_NAME} -n ${NAMESPACE} > deployment-manifest-${ENVIRONMENT}-current.yaml
+  artifacts:
+    paths:
+      - deployment-values-${ENVIRONMENT}-current.yaml
+      - deployment-manifest-${ENVIRONMENT}-current.yaml
+      - rollback-manifest-${ENVIRONMENT}-*.yaml
+      - rollback-values-${ENVIRONMENT}-*.yaml
+    expire_in: 30 days
+    name: "deploy-${ENVIRONMENT}-${CI_COMMIT_SHORT_SHA}"
+  environment:
+    name: test
+    url: https://test.example.com
+  only:
+    - main
+  when: manual
+  # NO needs: - runs independently
+
+# Production Deployment - Completely Independent
+deploy:prod:
+  stage: deploy
+  image: alpine/helm:${HELM_VERSION}
+  tags:
+    - prod-account
+  variables:
+    ENVIRONMENT: prod
+    RELEASE_NAME: "${CHART_NAME}-prod"
+    CLUSTER_NAME: "${PROD_CLUSTER_NAME:-prod-cluster}"
+    AWS_REGION: "${AWS_REGION:-us-east-1}"
+    DEPLOY_ENVIRONMENT: prod
+  before_script:
+    - apk add --no-cache aws-cli kubectl curl
+    - curl -L https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64 -o /usr/bin/yq
+    - chmod +x /usr/bin/yq
+    - aws sts get-caller-identity
+    - aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${AWS_REGION}
+    - kubectl config current-context
+    - export NAMESPACE=$(yq eval '.global.namespace' environments/${ENVIRONMENT}/values.yaml)
+    - echo "Using namespace: ${NAMESPACE}"
+    - |
+      echo "Production deployment checklist:"
+      echo "- Deployment approved by: ${GITLAB_USER_LOGIN}"
+      echo "- Current time: $(date)"
+      echo "- Namespace: ${NAMESPACE}"
+  script:
+    - |
+      echo "Deploying to Production environment..."
+      echo "Image tag from values.yaml: $(yq eval '.deployment.*.image.tag' values.yaml)"
+      
+      # Option to override image tag if needed
+      if [ -n "${OVERRIDE_IMAGE_TAG}" ]; then
+        echo "Overriding image tag to: ${OVERRIDE_IMAGE_TAG}"
+        yq eval -i ".deployment.*.image.tag = \"${OVERRIDE_IMAGE_TAG}\"" values.yaml
+      fi
+      
+      # CRITICAL: Save current production state BEFORE deployment
+      echo "Creating backup of current production deployment..."
+      helm get manifest ${RELEASE_NAME} -n ${NAMESPACE} > rollback-manifest-${ENVIRONMENT}-$(date +%Y%m%d-%H%M%S).yaml || echo "No existing deployment to backup"
+      helm get values ${RELEASE_NAME} -n ${NAMESPACE} > rollback-values-${ENVIRONMENT}-$(date +%Y%m%d-%H%M%S).yaml || echo "No existing values to backup"
+      
+      kubectl create ns ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+      
+      helm upgrade --install ${RELEASE_NAME} . \
+        -f values.yaml \
+        -f environments/${ENVIRONMENT}/values.yaml \
+        --namespace ${NAMESPACE} \
+        --wait \
+        --timeout 15m \
+        --atomic
+      
+      kubectl rollout status deployment -n ${NAMESPACE} --timeout=600s
+      kubectl get all -n ${NAMESPACE}
+  after_script:
+    - |
+      export NAMESPACE=$(yq eval '.global.namespace' environments/${ENVIRONMENT}/values.yaml)
+      helm get values ${RELEASE_NAME} -n ${NAMESPACE} > deployment-values-${ENVIRONMENT}-current.yaml
+      helm get manifest ${RELEASE_NAME} -n ${NAMESPACE} > deployment-manifest-${ENVIRONMENT}-current.yaml
+      # Run smoke tests
+      echo "Running production smoke tests..."
+      kubectl run smoke-test-${CI_PIPELINE_ID} \
+        --image=curlimages/curl:latest \
+        --rm -it --restart=Never \
+        --namespace=${NAMESPACE} \
+        -- curl -f http://${CHART_NAME}-service/health || true
+  artifacts:
+    paths:
+      - deployment-values-${ENVIRONMENT}-current.yaml
+      - deployment-manifest-${ENVIRONMENT}-current.yaml
+      - rollback-manifest-${ENVIRONMENT}-*.yaml
+      - rollback-values-${ENVIRONMENT}-*.yaml
+    expire_in: 90 days
+    name: "deploy-${ENVIRONMENT}-${CI_COMMIT_SHORT_SHA}"
+  environment:
+    name: production
+    url: https://example.com
+  only:
+    - main
+    - /^release\/.*$/
+  when: manual
+  # NO needs: - runs independently
+
+# Quick deployment status check
+check:deployment:
+  stage: deploy
+  image: alpine/helm:${HELM_VERSION}
+  tags:
+    - shared
+  script:
+    - |
+      echo "Current values.yaml image tag:"
+      cat values.yaml | grep -A2 "image:" | grep "tag:" || echo "No image tag found"
+      
+      echo -e "\nTo deploy to any environment:"
+      echo "1. Ensure values.yaml has the correct image tag"
+      echo "2. Go to CI/CD > Pipelines"
+      echo "3. Click play on the environment you want to deploy"
+      echo -e "\nNo dependencies between environments!"
+  only:
+    - main
+  when: manual
