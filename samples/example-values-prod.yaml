@@ -1,0 +1,212 @@
+# Production environment specific values
+global:
+  namespace: prod-namespace
+  labels:
+    environment: production
+  region: "us-east-1"
+  # Production specific security settings
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+  # Production typically has PDB for high availability
+  pdb:
+    enabled: true
+    minAvailable: 2
+  # Production IAM role for service account
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/prod-app-role
+
+containers:
+  api:
+    # Production specific deployment settings
+    deployment:
+      replicas: 3
+      # Production specific affinity rules for high availability
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - api
+              topologyKey: kubernetes.io/hostname
+      # Production node selectors
+      nodeSelector:
+        node-pool: prod-apps
+    
+    # Production specific container settings
+    container:
+      # Note: We don't specify image.tag here as it comes from values-base.yaml
+      # Production has higher resource requirements
+      resources:
+        requests:
+          cpu: 1000m
+          memory: 2Gi
+        limits:
+          cpu: 2000m
+          memory: 4Gi
+      # Production specific environment variables
+      env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "prod"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: db-config-prod
+              key: host
+      envFrom:
+        - configMapRef:
+            name: api-common-config-prod
+    
+    # Production specific ConfigMaps
+    configMaps:
+      app:
+        enabled: true
+        data:
+          application.properties: |
+            server.port=8080
+            spring.application.name=api-service
+            spring.profiles.active=prod
+            logging.level.root=INFO
+            logging.level.org.springframework=WARN
+            cache.enabled=true
+            metrics.enabled=true
+      database:
+        enabled: true
+        data:
+          database.conf: |
+            host=db-prod.example.com
+            port=5432
+            database=app_db_prod
+            pool.size=20
+            connection.timeout=5000
+    
+    # Production uses AWS Secrets Manager instead of K8s secrets
+    awsSecrets:
+      enabled: true
+      region: us-east-1
+      failoverRegion: us-west-2
+      mountPath: "/mnt/secrets"
+      secrets:
+        - name: "prod/api/database"
+          type: "secretsmanager"
+          fileName: "database.json"
+        - name: "prod/api/config"
+          type: "secretsmanager"
+          jmesPath:
+            apiKey: "api-key.txt"
+            database.username: "db-username.txt"
+            database.password: "db-password.txt"
+      syncSecrets:
+        - name: api-db-credentials
+          type: Opaque
+          data:
+            username:
+              objectName: "prod/api/database"
+              objectKey: "username"
+            password:
+              objectName: "prod/api/database"
+              objectKey: "password"
+    
+    # Production specific Traefik IngressRoute with TLS
+    ingressroute:
+      enabled: true
+      entryPoints:
+        - websecure
+      routes:
+        - match: "Host(`api.example.com`)"
+          kind: Rule
+          services:
+            - port: 80
+          middlewares:
+            - name: api-ratelimit
+      tls:
+        certResolver: le
+        options:
+          name: modern-tls
+        domains:
+          - main: api.example.com
+    
+    # Production specific HPA for higher scaling
+    hpa:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 10
+      targetCPUUtilizationPercentage: 70
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+    
+    # Production specific ServiceMonitor
+    serviceMonitor:
+      enabled: true
+      interval: 15s
+      path: /metrics
+      port: metrics
+    
+    # Production specific NetworkPolicy
+    networkPolicy:
+      enabled: true
+      policyTypes:
+        - Ingress
+        - Egress
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: frontend
+      egress:
+        - to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/component: database
+
+  # Worker service with production-specific settings
+  worker:
+    deployment:
+      replicas: 3
+      nodeSelector:
+        node-pool: prod-workers
+    
+    container:
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: 1000m
+          memory: 2Gi
+      # Production environment variables
+      env:
+        - name: WORKER_QUEUE
+          value: "prod-queue"
+        - name: WORKER_CONCURRENCY
+          value: "10"
+    
+    # Production persistent volume claim
+    persistentVolumeClaim:
+      enabled: true
+      storageClassName: gp3
+      accessModes:
+        - ReadWriteOnce
+      size: 50Gi
+    
+    # Production KEDA configuration
+    keda:
+      enabled: true
+      minReplicaCount: 3
+      maxReplicaCount: 20
+      pollingInterval: 15
+      cooldownPeriod: 300
+      triggers:
+        - type: aws-sqs-queue
+          metadata:
+            queueURL: https://sqs.us-east-1.amazonaws.com/123456789012/prod-worker-queue
+            queueLength: "10"
+            awsRegion: us-east-1
