@@ -1,0 +1,370 @@
+# .gitlab-ci.yml
+stages:
+  - validate
+  - build-artifacts
+  - deploy-dev
+  - deploy-test
+  - deploy-prod
+  - post-deploy
+
+variables:
+  HELM_VERSION: "3.12.0"
+  KUBECTL_VERSION: "1.28.0"
+  CHART_NAME: "app"
+  
+# Validation runs on shared runner
+validate:helm:
+  stage: validate
+  image: alpine/helm:${HELM_VERSION}
+  tags:
+    - shared  # Runs on any shared runner
+  script:
+    - helm dependency update .
+    - helm lint . -f values-base.yaml
+    # Validate each environment's values
+    - helm lint . -f values-base.yaml -f environments/dev/values.yaml
+    - helm lint . -f values-base.yaml -f environments/test/values.yaml
+    - helm lint . -f values-base.yaml -f environments/prod/values.yaml
+  only:
+    - merge_requests
+    - main
+    - /^release\/.*$/
+
+# Build and package Helm chart (runs on shared runner)
+build:chart:
+  stage: build-artifacts
+  image: alpine/helm:${HELM_VERSION}
+  tags:
+    - shared
+  script:
+    - helm dependency update .
+    - helm package . --version ${CI_COMMIT_SHORT_SHA}
+    - mkdir -p artifacts
+    - mv *.tgz artifacts/
+  artifacts:
+    paths:
+      - artifacts/*.tgz
+    expire_in: 1 week
+  only:
+    - main
+    - /^release\/.*$/
+
+# Development Deployment - Runs on Dev Account Runner
+deploy:dev:
+  stage: deploy-dev
+  image: alpine/helm:${HELM_VERSION}
+  tags:
+    - dev-account  # CRITICAL: This ensures job runs on dev account runner
+  variables:
+    ENVIRONMENT: dev
+    NAMESPACE: "app-dev"
+    RELEASE_NAME: "${CHART_NAME}-dev"
+    # No need to specify cluster - runner already has access
+  before_script:
+    - apk add --no-cache aws-cli kubectl
+    # Runner already has AWS credentials for dev account
+    - aws sts get-caller-identity  # Verify we're in correct account
+    - kubectl config current-context
+    - kubectl cluster-info
+  script:
+    - |
+      echo "Deploying to Development environment..."
+      
+      # Deploy using Helm with dev-specific values
+      helm upgrade --install ${RELEASE_NAME} . \
+        -f values-base.yaml \
+        -f environments/dev/values.yaml \
+        --namespace ${NAMESPACE} \
+        --create-namespace \
+        --wait \
+        --timeout 10m \
+        --set global.image.tag=${IMAGE_TAG:-$CI_COMMIT_SHORT_SHA} \
+        --set global.environment=${ENVIRONMENT} \
+        --set global.gitCommit=${CI_COMMIT_SHA} \
+        --set global.gitBranch=${CI_COMMIT_REF_NAME} \
+        --set global.deployedBy="GitLab-${GITLAB_USER_LOGIN}" \
+        --set global.deploymentTime="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      
+      # Verify deployment
+      kubectl rollout status deployment -n ${NAMESPACE} --timeout=300s
+      kubectl get all -n ${NAMESPACE}
+  after_script:
+    - |
+      # Save deployment info for rollback
+      helm get values ${RELEASE_NAME} -n ${NAMESPACE} > deployment-values-dev.yaml
+      helm get manifest ${RELEASE_NAME} -n ${NAMESPACE} > deployment-manifest-dev.yaml
+  artifacts:
+    paths:
+      - deployment-values-dev.yaml
+      - deployment-manifest-dev.yaml
+    expire_in: 30 days
+  environment:
+    name: development
+    url: https://dev.example.com
+    on_stop: cleanup:dev
+  only:
+    - main
+  when: on_success
+
+# Test Deployment - Runs on Test Account Runner
+deploy:test:
+  stage: deploy-test
+  image: alpine/helm:${HELM_VERSION}
+  tags:
+    - test-account  # CRITICAL: This ensures job runs on test account runner
+  variables:
+    ENVIRONMENT: test
+    NAMESPACE: "app-test"
+    RELEASE_NAME: "${CHART_NAME}-test"
+  before_script:
+    - apk add --no-cache aws-cli kubectl
+    - aws sts get-caller-identity
+    - kubectl config current-context
+  script:
+    - |
+      echo "Deploying to Test environment..."
+      
+      # Use the same image tag that was deployed to dev
+      if [ -z "${PROMOTE_IMAGE_TAG}" ]; then
+        echo "ERROR: PROMOTE_IMAGE_TAG must be set for test deployment"
+        exit 1
+      fi
+      
+      helm upgrade --install ${RELEASE_NAME} . \
+        -f values-base.yaml \
+        -f environments/test/values.yaml \
+        --namespace ${NAMESPACE} \
+        --create-namespace \
+        --wait \
+        --timeout 10m \
+        --set global.image.tag=${PROMOTE_IMAGE_TAG} \
+        --set global.environment=${ENVIRONMENT} \
+        --set global.gitCommit=${CI_COMMIT_SHA} \
+        --set global.gitBranch=${CI_COMMIT_REF_NAME} \
+        --set global.deployedBy="GitLab-${GITLAB_USER_LOGIN}" \
+        --set global.deploymentTime="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --set global.promotedFromDev="true"
+      
+      kubectl rollout status deployment -n ${NAMESPACE} --timeout=300s
+      kubectl get all -n ${NAMESPACE}
+  after_script:
+    - |
+      helm get values ${RELEASE_NAME} -n ${NAMESPACE} > deployment-values-test.yaml
+      helm get manifest ${RELEASE_NAME} -n ${NAMESPACE} > deployment-manifest-test.yaml
+  artifacts:
+    paths:
+      - deployment-values-test.yaml
+      - deployment-manifest-test.yaml
+    expire_in: 30 days
+  environment:
+    name: test
+    url: https://test.example.com
+    on_stop: cleanup:test
+  only:
+    - main
+  when: manual
+  needs: ["deploy:dev"]
+
+# Production Deployment - Runs on Prod Account Runner
+deploy:prod:
+  stage: deploy-prod
+  image: alpine/helm:${HELM_VERSION}
+  tags:
+    - prod-account  # CRITICAL: This ensures job runs on prod account runner
+  variables:
+    ENVIRONMENT: prod
+    NAMESPACE: "app-prod"
+    RELEASE_NAME: "${CHART_NAME}-prod"
+  before_script:
+    - apk add --no-cache aws-cli kubectl
+    - aws sts get-caller-identity
+    - kubectl config current-context
+    # Additional production safety checks
+    - |
+      echo "Production deployment checklist:"
+      echo "- Deployment approved by: ${GITLAB_USER_LOGIN}"
+      echo "- Image tag to deploy: ${PROMOTE_IMAGE_TAG}"
+      echo "- Current time: $(date)"
+  script:
+    - |
+      echo "Deploying to Production environment..."
+      
+      if [ -z "${PROMOTE_IMAGE_TAG}" ]; then
+        echo "ERROR: PROMOTE_IMAGE_TAG must be set for production deployment"
+        exit 1
+      fi
+      
+      # Create backup of current production state
+      echo "Creating backup of current production deployment..."
+      helm get values ${RELEASE_NAME} -n ${NAMESPACE} > backup-prod-values-$(date +%Y%m%d-%H%M%S).yaml || true
+      
+      # Deploy to production
+      helm upgrade --install ${RELEASE_NAME} . \
+        -f values-base.yaml \
+        -f environments/prod/values.yaml \
+        --namespace ${NAMESPACE} \
+        --create-namespace \
+        --wait \
+        --timeout 15m \
+        --atomic \
+        --set global.image.tag=${PROMOTE_IMAGE_TAG} \
+        --set global.environment=${ENVIRONMENT} \
+        --set global.gitCommit=${CI_COMMIT_SHA} \
+        --set global.gitBranch=${CI_COMMIT_REF_NAME} \
+        --set global.deployedBy="GitLab-${GITLAB_USER_LOGIN}" \
+        --set global.deploymentTime="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --set global.promotedFromTest="true"
+      
+      kubectl rollout status deployment -n ${NAMESPACE} --timeout=600s
+      kubectl get all -n ${NAMESPACE}
+  after_script:
+    - |
+      helm get values ${RELEASE_NAME} -n ${NAMESPACE} > deployment-values-prod.yaml
+      helm get manifest ${RELEASE_NAME} -n ${NAMESPACE} > deployment-manifest-prod.yaml
+      # Run production smoke tests
+      echo "Running production smoke tests..."
+      kubectl run smoke-test-${CI_PIPELINE_ID} \
+        --image=curlimages/curl:latest \
+        --rm -it --restart=Never \
+        --namespace=${NAMESPACE} \
+        -- curl -f http://${CHART_NAME}-service/health || true
+  artifacts:
+    paths:
+      - deployment-values-prod.yaml
+      - deployment-manifest-prod.yaml
+      - backup-prod-values-*.yaml
+    expire_in: 90 days
+  environment:
+    name: production
+    url: https://example.com
+    on_stop: cleanup:prod
+  only:
+    - main
+    - /^release\/.*$/
+  when: manual
+  needs: ["deploy:test"]
+
+# Rollback templates for each environment
+.rollback_template:
+  image: alpine/helm:${HELM_VERSION}
+  before_script:
+    - apk add --no-cache kubectl
+  script:
+    - |
+      echo "Rolling back ${ENVIRONMENT} to revision ${ROLLBACK_REVISION:-0}"
+      helm rollback ${RELEASE_NAME} ${ROLLBACK_REVISION:-0} -n ${NAMESPACE} --wait
+      kubectl rollout status deployment -n ${NAMESPACE} --timeout=300s
+  when: manual
+
+rollback:dev:
+  extends: .rollback_template
+  stage: deploy-dev
+  tags:
+    - dev-account
+  variables:
+    ENVIRONMENT: dev
+    NAMESPACE: "app-dev"
+    RELEASE_NAME: "${CHART_NAME}-dev"
+
+rollback:test:
+  extends: .rollback_template
+  stage: deploy-test
+  tags:
+    - test-account
+  variables:
+    ENVIRONMENT: test
+    NAMESPACE: "app-test"
+    RELEASE_NAME: "${CHART_NAME}-test"
+
+rollback:prod:
+  extends: .rollback_template
+  stage: deploy-prod
+  tags:
+    - prod-account
+  variables:
+    ENVIRONMENT: prod
+    NAMESPACE: "app-prod"
+    RELEASE_NAME: "${CHART_NAME}-prod"
+
+# Cleanup jobs for stopped environments
+.cleanup_template:
+  image: alpine/helm:${HELM_VERSION}
+  before_script:
+    - apk add --no-cache kubectl
+  script:
+    - helm uninstall ${RELEASE_NAME} -n ${NAMESPACE} || true
+    - kubectl delete namespace ${NAMESPACE} || true
+  when: manual
+
+cleanup:dev:
+  extends: .cleanup_template
+  stage: deploy-dev
+  tags:
+    - dev-account
+  variables:
+    NAMESPACE: "app-dev"
+    RELEASE_NAME: "${CHART_NAME}-dev"
+  environment:
+    name: development
+    action: stop
+
+cleanup:test:
+  extends: .cleanup_template
+  stage: deploy-test
+  tags:
+    - test-account
+  variables:
+    NAMESPACE: "app-test"
+    RELEASE_NAME: "${CHART_NAME}-test"
+  environment:
+    name: test
+    action: stop
+
+cleanup:prod:
+  extends: .cleanup_template
+  stage: deploy-prod
+  tags:
+    - prod-account
+  variables:
+    NAMESPACE: "app-prod"
+    RELEASE_NAME: "${CHART_NAME}-prod"
+  environment:
+    name: production
+    action: stop
+
+# Post-deployment validation (runs on shared runner)
+validate:deployments:
+  stage: post-deploy
+  image: alpine:latest
+  tags:
+    - shared
+  script:
+    - |
+      echo "Deployment Summary:"
+      echo "==================="
+      echo "Pipeline ID: ${CI_PIPELINE_ID}"
+      echo "Commit: ${CI_COMMIT_SHA}"
+      echo "Branch: ${CI_COMMIT_REF_NAME}"
+      echo "Triggered by: ${GITLAB_USER_LOGIN}"
+      echo "==================="
+      # Create deployment report
+      cat > deployment-report.json <<EOF
+      {
+        "pipeline_id": "${CI_PIPELINE_ID}",
+        "commit_sha": "${CI_COMMIT_SHA}",
+        "branch": "${CI_COMMIT_REF_NAME}",
+        "triggered_by": "${GITLAB_USER_LOGIN}",
+        "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+        "image_tag": "${IMAGE_TAG:-$CI_COMMIT_SHORT_SHA}"
+      }
+      EOF
+  artifacts:
+    reports:
+      dotenv: deployment-report.env
+    paths:
+      - deployment-report.json
+    expire_in: 30 days
+  when: on_success
+  allow_failure: true
+  only:
+    - main
