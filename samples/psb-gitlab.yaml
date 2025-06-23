@@ -1,4 +1,3 @@
-
 stages:
   - validate
   - deploy
@@ -8,6 +7,8 @@ variables:
   DEV_CLUSTER_NAME: "eks132-psb-paas-eks-cluster-chiran"
   TEST_CLUSTER_NAME: "test-cluster"
   PROD_CLUSTER_NAME: "prod-cluster"
+  # Add CHART_NAME as a global variable so it's available to all jobs
+  CHART_NAME: "${CI_PROJECT_NAME}"
 
 validate:helm:
   stage: validate
@@ -29,8 +30,6 @@ validate:helm:
         echo "✓ Namespace for ${env}: ${namespace}"
       done
 
-
-
 deploy:dev:
   stage: deploy
   image: prod-cicm.uspto.gov:9996/ecc/oci/ci-tools:latest
@@ -38,44 +37,43 @@ deploy:dev:
     - aws_lab  # CRITICAL: This ensures job runs on dev account runner
   variables:
     ENVIRONMENT: dev
-    RELEASE_NAME: "${CHART_NAME}-dev"
+    RELEASE_NAME: "${CI_PROJECT_NAME}-dev"
     CLUSTER_NAME: "${DEV_CLUSTER_NAME}"
-    AWS_REGION: "${AWS_REGION:-us-east-1}"
   before_script:
-    - aws sts get-caller-identity --region ${AWS_REGION} # Verify we're in correct account
-    - aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${AWS_REGION}
-    #- kubectl config current-context
-    #- kubectl cluster-info
-    # Extract namespace from values file
-    - export NAMESPACE=$(yq eval '.global.namespace' environments/${ENVIRONMENT}/values.yaml)
-    #- echo "Using namespace: ${NAMESPACE}"
+    # Use double quotes for all variable expansions to ensure proper interpolation
+    - echo "Using AWS Region: ${AWS_REGION}"
+    - echo "Using Cluster Name: ${CLUSTER_NAME}"
+    - echo "Using Release Name: ${RELEASE_NAME}"
+    - aws sts get-caller-identity --region "${AWS_REGION}" # Verify we're in correct account
+    - aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
+    - echo "Kubeconfig updated successfully"
+    # Extract namespace from values file and export as environment variable
+    - NAMESPACE=$(yq eval '.global.namespace' "environments/${ENVIRONMENT}/values.yaml")
+    - echo "Using namespace: ${NAMESPACE}"
+    - export NAMESPACE="${NAMESPACE}"
   script:
-    - |
-      export KUBECONFIG=/root/.kube/config
-      # Create namespace if it doesn't exist
-      kubectl create ns ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
-
-
+    - export KUBECONFIG=/root/.kube/config
+    # Create namespace if it doesn't exist
+    - kubectl create ns "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
     - helm repo add psb1-helm-base-chart https://dev-cicm.etc.uspto.gov/nexus3/repository/psb1-helm-base-chart/
     - helm repo update
-    - mkdir charts
+    - mkdir -p charts
     - helm pull psb1-helm-base-chart/psb1-helm-base-chart --version 0.2.2 --destination charts/
     - |
-      helm template ${RELEASE_NAME} charts/psb1-helm-base-chart-0.2.2.tgz  \
+      helm template "${RELEASE_NAME}" charts/psb1-helm-base-chart-0.2.2.tgz \
         -f values.yaml \
-        -f environments/${ENVIRONMENT}/values.yaml \
-        --namespace ${NAMESPACE} > $NAMESPACE.yaml
+        -f "environments/${ENVIRONMENT}/values.yaml" \
+        --namespace "${NAMESPACE}" > "${NAMESPACE}.yaml"
 
-      kubectl apply -f $NAMESPACE.yaml
+      kubectl apply -f "${NAMESPACE}.yaml"
 
-      # Verify deployment
-      kubectl rollout status deployment -n ${NAMESPACE} --timeout=300s
-      kubectl get all -n ${NAMESPACE}
+      # Verify deployment - use explicit namespace in deployment status check
+      kubectl rollout status deployment -n "${NAMESPACE}" --timeout=300s
+      kubectl get all -n "${NAMESPACE}"
   only:
     - master
     - /^develop\/.*$/
   when: on_success
-
 
 # Test Deployment - Runs on Test Account Runner
 deploy:test:
@@ -85,17 +83,20 @@ deploy:test:
     - aws_lab  # CRITICAL: This ensures job runs on test account runner
   variables:
     ENVIRONMENT: test
-    RELEASE_NAME: "${CHART_NAME}-test"
+    RELEASE_NAME: "${CI_PROJECT_NAME}-test"
     CLUSTER_NAME: "${TEST_CLUSTER_NAME}"  # Can be overridden
-    AWS_REGION: "${AWS_REGION:-us-east-1}"
   before_script:
+    - echo "Using AWS Region: ${AWS_REGION}"
+    - echo "Using Cluster Name: ${CLUSTER_NAME}"
+    - echo "Using Release Name: ${RELEASE_NAME}"
     - aws sts get-caller-identity
     # Update kubeconfig to authenticate to EKS cluster
-    - aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${AWS_REGION}
+    - aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
     - kubectl config current-context
     # Extract namespace from values file
-    - export NAMESPACE=$(yq eval '.global.namespace' environments/${ENVIRONMENT}/values.yaml)
-    - echo "Using namespace:/ ${NAMESPACE}"
+    - NAMESPACE=$(yq eval '.global.namespace' "environments/${ENVIRONMENT}/values.yaml")
+    - echo "Using namespace: ${NAMESPACE}"
+    - export NAMESPACE="${NAMESPACE}"
   script:
     - |
       echo "Deploying to Test environment..."
@@ -103,30 +104,29 @@ deploy:test:
       echo "Release: ${RELEASE_NAME}"
       
       # Create namespace if it doesn't exist
-      kubectl create ns ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+      kubectl create ns "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
       
     - export KUBECONFIG=/root/.kube/config
     - helm repo add psb1-helm-base-chart https://dev-cicm.etc.uspto.gov/nexus3/repository/psb1-helm-base-chart/
     - helm repo update
-    - mkdir charts
+    - mkdir -p charts
     - helm pull psb1-helm-base-chart/psb1-helm-base-chart --version 0.2.2 --destination charts/
     - |
-      helm template ${RELEASE_NAME} charts/psb1-helm-base-chart-0.2.2.tgz  \
+      helm template "${RELEASE_NAME}" charts/psb1-helm-base-chart-0.2.2.tgz \
         -f values.yaml \
-        -f environments/${ENVIRONMENT}/values.yaml \
-        --namespace ${NAMESPACE} > $NAMESPACE.yaml
+        -f "environments/${ENVIRONMENT}/values.yaml" \
+        --namespace "${NAMESPACE}" > "${NAMESPACE}.yaml"
 
-      kubectl apply -f $NAMESPACE.yaml
+      kubectl apply -f "${NAMESPACE}.yaml"
 
       # Verify deployment
-      kubectl rollout status deployment -n ${NAMESPACE} --timeout=300s
-      kubectl get all -n ${NAMESPACE}
+      kubectl rollout status deployment -n "${NAMESPACE}" --timeout=300s
+      kubectl get all -n "${NAMESPACE}"
   only:
     - master
     - /^release\/.*$/
   when: manual
   needs: ["deploy:dev"]
-
       
 deploy:prod:
   stage: deploy
@@ -135,15 +135,19 @@ deploy:prod:
     - aws_lab  # CRITICAL: This ensures job runs on prod account runner
   variables:
     ENVIRONMENT: prod
-    RELEASE_NAME: "${CHART_NAME}-prod"
+    RELEASE_NAME: "${CI_PROJECT_NAME}-prod"
     CLUSTER_NAME: "${PROD_CLUSTER_NAME}"  # Can be overridden
-    AWS_REGION: "${AWS_REGION:-us-east-1}"
   before_script:
+    - echo "Using AWS Region: ${AWS_REGION}"
+    - echo "Using Cluster Name: ${CLUSTER_NAME}"
+    - echo "Using Release Name: ${RELEASE_NAME}"
     - aws sts get-caller-identity
-    - aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${AWS_REGION}
+    - aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
     - kubectl config current-context
     # Extract namespace from values file
-    - export NAMESPACE=$(yq eval '.global.namespace' environments/${ENVIRONMENT}/values.yaml)
+    - NAMESPACE=$(yq eval '.global.namespace' "environments/${ENVIRONMENT}/values.yaml")
+    - echo "Using namespace: ${NAMESPACE}"
+    - export NAMESPACE="${NAMESPACE}"
     - |
       echo "Production deployment checklist:"
       echo "- Deployment approved by: ${GITLAB_USER_LOGIN}"
@@ -156,29 +160,28 @@ deploy:prod:
       echo "Release: ${RELEASE_NAME}"
       
       # Create namespace if it doesn't exist
-      kubectl create ns ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+      kubectl create ns "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
       
       # Deploy to production
     - export KUBECONFIG=/root/.kube/config
     - helm repo add psb1-helm-base-chart https://dev-cicm.etc.uspto.gov/nexus3/repository/psb1-helm-base-chart/
     - helm repo update
-    - mkdir charts
+    - mkdir -p charts
     - helm pull psb1-helm-base-chart/psb1-helm-base-chart --version 0.2.2 --destination charts/
     - |
-      helm template ${RELEASE_NAME} charts/psb1-helm-base-chart-0.2.2.tgz  \
+      helm template "${RELEASE_NAME}" charts/psb1-helm-base-chart-0.2.2.tgz \
         -f values.yaml \
-        -f environments/${ENVIRONMENT}/values.yaml \
-        --namespace ${NAMESPACE} > $NAMESPACE.yaml
+        -f "environments/${ENVIRONMENT}/values.yaml" \
+        --namespace "${NAMESPACE}" > "${NAMESPACE}.yaml"
 
-      kubectl apply -f $NAMESPACE.yaml
+      kubectl apply -f "${NAMESPACE}.yaml"
 
       # Verify deployment
-      kubectl rollout status deployment -n ${NAMESPACE} --timeout=300s
-      kubectl get all -n ${NAMESPACE}
+      kubectl rollout status deployment -n "${NAMESPACE}" --timeout=300s
+      kubectl get all -n "${NAMESPACE}"
 
   only:
     - master
     - /^release\/.*$/
   when: manual
   needs: ["deploy:test"]
-
