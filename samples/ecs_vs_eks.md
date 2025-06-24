@@ -16,8 +16,6 @@ Amazon EKS represents more than a technology choice—it's a strategic alignment
 
 **Government adoption establishes precedent for federal deployment.** The Department of Defense's Platform One represents the most mature federal Kubernetes implementation, supporting 37 teams across weapons systems including successful deployment on F-16 aircraft within 45 days. Federal agencies benefit from FedRAMP-authorized EKS at both Moderate and High levels, with contractors like Booz Allen Hamilton successfully deploying Kubernetes across Defense, Intelligence, and civilian agencies.
 
-### Talent Market Economics Favor Kubernetes Expertise
-**The job market decisively favors Kubernetes professionals.** Current data shows 36,000+ Kubernetes positions available with average salaries of $154,451, compared to limited ECS-specific roles. Kubernetes professionals command a 21% premium over general DevOps engineers, with comprehensive certification paths (CKA, CKAD, CKS) ensuring quality talent pools. For USPTO's long-term staffing strategy, choosing Kubernetes means access to a growing, transferable skill set versus ECS's AWS-specific expertise.
 
 ## Future-Proofing Through Kubernetes: Strategic Advantages
 
