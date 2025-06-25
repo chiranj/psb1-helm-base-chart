@@ -1,0 +1,38 @@
+---
+- name: Create RPA Data Folders
+  hosts: all
+  become: yes
+  gather_facts: no
+  
+  tasks:
+    - name: Create RPA ship directory
+      file:
+        path: /opt/RPAData/ship
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Create RPA Apps directory
+      file:
+        path: /opt/RPAData/Apps
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Create RPA Apps environment directory
+      file:
+        path: /opt/RPAData/Apps/environment
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Create Docker log directory
+      file:
+        path: /var/log/docker
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
